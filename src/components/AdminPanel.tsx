@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, onSnapshot, doc, updateDoc, deleteDoc, addDoc } from 'firebase/firestore';
+import { collection, query, onSnapshot, doc, updateDoc, deleteDoc, addDoc, where, orderBy, limit, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { AppUser } from '../contexts/AuthContext';
 import { Check, X, Trash2, Edit2, Shield, ShieldAlert, Plus, Building2, Settings, Palette, Type as TypeIcon, Upload, Loader2 } from 'lucide-react';
@@ -219,14 +219,38 @@ export default function AdminPanel() {
   };
 
   const saveEdit = async (uid: string) => {
+    const user = users.find(u => u.uid === uid);
+    if (!user) return;
+
+    const newClicks = Number(editForm.clicks);
+    const oldClicks = user.clicks || 0;
+
     const updateData: any = {
       name: editForm.name,
       yeshiva: editForm.yeshiva,
-      clicks: Number(editForm.clicks)
+      clicks: newClicks
     };
 
+    // If clicks are reduced, delete the most recent click documents
+    if (newClicks < oldClicks) {
+      try {
+        const diff = oldClicks - newClicks;
+        const q = query(
+          collection(db, 'clicks'),
+          where('uid', '==', uid),
+          orderBy('timestamp', 'desc'),
+          limit(diff)
+        );
+        const snapshot = await getDocs(q);
+        const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
+        await Promise.all(deletePromises);
+      } catch (error) {
+        console.error("Error deleting click records:", error);
+      }
+    }
+
     // If clicks are reset to 0, also clear lastLocation
-    if (Number(editForm.clicks) === 0) {
+    if (newClicks === 0) {
       updateData.lastLocation = { lat: 0, lng: 0 };
     }
 

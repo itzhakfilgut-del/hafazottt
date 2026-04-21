@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, increment, deleteDoc } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, increment, deleteDoc, where, limit, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { AppUser, useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -41,6 +41,19 @@ export default function Leaderboard() {
   const handleUpdateClicks = async (uid: string, amount: number, currentClicks: number) => {
     if (currentClicks + amount < 0) return;
     try {
+      if (amount < 0) {
+        // If decrementing, delete the most recent click document
+        const q = query(
+          collection(db, 'clicks'),
+          where('uid', '==', uid),
+          orderBy('timestamp', 'desc'),
+          limit(Math.abs(amount))
+        );
+        const snapshot = await getDocs(q);
+        const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
+        await Promise.all(deletePromises);
+      }
+
       await updateDoc(doc(db, 'users', uid), {
         clicks: increment(amount)
       });

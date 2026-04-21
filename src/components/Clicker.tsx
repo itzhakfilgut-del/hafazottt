@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { doc, updateDoc, collection, addDoc, increment } from 'firebase/firestore';
@@ -13,6 +13,94 @@ export default function Clicker() {
   const texts = settings?.texts || FALLBACK_TEXTS;
   const theme = settings?.theme;
   const [loading, setLoading] = useState(false);
+  const [currentLocation, setCurrentLocation] = useState<{lat: number, lng: number} | null>(null);
+
+  // Initialize and track position constantly in the background
+  useEffect(() => {
+    let watchId: string | null = null;
+    let webWatchId: number | null = null;
+
+    const startWebTracking = () => {
+      if ('geolocation' in navigator) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            setCurrentLocation({
+              lat: position.coords.latitude,
+              lng: position.coords.longitude
+            });
+          },
+          (err) => console.log("Web geolocation initial error:", err),
+          { timeout: 10000, enableHighAccuracy: true }
+        );
+
+        webWatchId = navigator.geolocation.watchPosition(
+          (position) => {
+            setCurrentLocation({
+              lat: position.coords.latitude,
+              lng: position.coords.longitude
+            });
+          },
+          (err) => console.log("Web geolocation watch error:", err),
+          { timeout: 20000, enableHighAccuracy: true }
+        );
+      }
+    };
+
+    const startLocationTracking = async () => {
+      try {
+        // Automatically ask for permissions right when the user enters the screen
+        let permission = await Geolocation.checkPermissions();
+        if (permission.location !== 'granted') {
+          permission = await Geolocation.requestPermissions();
+        }
+
+        // If granted, let's start a continuous watcher for smooth, instant clicks
+        if (permission.location === 'granted') {
+          // Fallback: Also do one very fast initial check using cached/network location
+          try {
+            const initialPos = await Geolocation.getCurrentPosition({ 
+              enableHighAccuracy: false, 
+              timeout: 10000 
+            });
+            setCurrentLocation({ 
+              lat: initialPos.coords.latitude, 
+              lng: initialPos.coords.longitude 
+            });
+          } catch (e) {
+            console.log("Initial fast location check failed.");
+          }
+
+          // Start the continuous high-accuracy tracker
+          watchId = await Geolocation.watchPosition(
+            { enableHighAccuracy: true, timeout: 20000 },
+            (position) => {
+              if (position) {
+                setCurrentLocation({
+                  lat: position.coords.latitude,
+                  lng: position.coords.longitude
+                });
+              }
+            }
+          );
+        }
+      } catch (error: any) {
+        console.warn("Capacitor Geolocation not available, falling back to Web API:", error.message);
+        startWebTracking();
+      }
+    };
+
+    startLocationTracking();
+
+    return () => {
+      // Cleanup the watcher when the component unmounts
+      if (watchId) {
+        Geolocation.clearWatch({ id: watchId }).catch(console.error);
+      }
+      if (webWatchId !== null && 'geolocation' in navigator) {
+        navigator.geolocation.clearWatch(webWatchId);
+      }
+    };
+  }, []);
 
   const handleClick = async (e?: React.MouseEvent | React.TouchEvent) => {
     if (e) {
@@ -30,27 +118,8 @@ export default function Clicker() {
     setLoading(true);
     
     try {
-      // Get location using Capacitor natively
-      let locationData: { lat: number, lng: number } | null = null;
-      try {
-        // First check permissions
-        const permission = await Geolocation.checkPermissions();
-        if (permission.location !== 'granted') {
-          await Geolocation.requestPermissions();
-        }
-
-        const position = await Geolocation.getCurrentPosition({
-          enableHighAccuracy: true,
-          timeout: 5000
-        });
-        
-        locationData = {
-          lat: position.coords.latitude,
-          lng: position.coords.longitude
-        };
-      } catch (e) {
-        console.log("Could not get location", e);
-      }
+      // Now the click is instant! We just use the cached background location
+      const locationData = currentLocation;
 
       // Update user clicks
       const userRef = doc(db, 'users', appUser.uid);
@@ -72,7 +141,16 @@ export default function Clicker() {
         timestamp: new Date().toISOString()
       };
       if (locationData) {
-        clickData.location = locationData;
+        // Add a tiny random jitter (approx ~10-20 meters) to the coordinates.
+        // This ensures that if a user clicks 10 times without moving, the 10 markers
+        // don't perfectly overlap into a single visible dot on the map.
+        const jitterLat = (Math.random() - 0.5) * 0.0003;
+        const jitterLng = (Math.random() - 0.5) * 0.0003;
+        
+        clickData.location = {
+          lat: locationData.lat + jitterLat,
+          lng: locationData.lng + jitterLng
+        };
       }
       await addDoc(collection(db, 'clicks'), clickData);
 
