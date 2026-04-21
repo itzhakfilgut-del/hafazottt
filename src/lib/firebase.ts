@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { initializeAuth, getAuth, indexedDBLocalCache } from 'firebase/auth';
 import { initializeFirestore } from 'firebase/firestore';
+import { Capacitor } from '@capacitor/core';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -12,7 +13,13 @@ const firebaseConfig = {
 };
 
 export const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
+
+// In Capacitor Android, getAuth() mounts a hidden iframe for popups that crashes
+// with "Offline is not defined" in Google's api.js. We bypass it via initializeAuth natively.
+export const auth = Capacitor.isNativePlatform()
+  ? initializeAuth(app, { persistence: indexedDBLocalCache })
+  : getAuth(app);
+
 export const db = initializeFirestore(app, {
   experimentalForceLongPolling: true
 });
