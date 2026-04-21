@@ -10,7 +10,7 @@ import Dashboard from './pages/Dashboard';
 import WhatsAppBubble from './components/WhatsAppBubble';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  const { user, appUser, loading: authLoading } = useAuth();
+  const { user, appUser, loading: authLoading, authError } = useAuth();
   const { settings, loading: settingsLoading } = useSettings();
   const [showError, setShowError] = React.useState(false);
 
@@ -48,6 +48,12 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
         <h2 className="text-red-600 font-bold text-2xl mb-4">{texts.auth.missingDataTitle}</h2>
         <p className="text-slate-700 mb-2">{texts.auth.missingDataDesc1}</p>
         <p className="text-slate-700 mb-6">{texts.auth.missingDataDesc2}</p>
+        {authError && (
+          <div className="bg-red-50 text-red-600 text-sm p-4 rounded-xl text-left border border-red-200 w-full max-w-md font-mono mb-6" dir="ltr">
+            <span className="font-bold block mb-1">Debug Info:</span>
+            {authError}
+          </div>
+        )}
         <button 
           onClick={() => {
             import('./lib/firebase').then(({ auth }) => auth.signOut());
