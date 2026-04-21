@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { initializeAuth, getAuth, indexedDBLocalCache } from 'firebase/auth';
+import { initializeAuth, getAuth, indexedDBLocalPersistence } from 'firebase/auth';
 import { initializeFirestore } from 'firebase/firestore';
 import { Capacitor } from '@capacitor/core';
 
@@ -17,7 +17,7 @@ export const app = initializeApp(firebaseConfig);
 // In Capacitor Android, getAuth() mounts a hidden iframe for popups that crashes
 // with "Offline is not defined" in Google's api.js. We bypass it via initializeAuth natively.
 export const auth = Capacitor.isNativePlatform()
-  ? initializeAuth(app, { persistence: indexedDBLocalCache })
+  ? initializeAuth(app, { persistence: indexedDBLocalPersistence })
   : getAuth(app);
 
 export const db = initializeFirestore(app, {
