@@ -5,6 +5,7 @@ import { doc, updateDoc, collection, addDoc, increment } from 'firebase/firestor
 import { db } from '../lib/firebase';
 import { MousePointerClick } from 'lucide-react';
 import { APP_TEXTS as FALLBACK_TEXTS } from '../constants';
+import { Geolocation } from '@capacitor/geolocation';
 
 export default function Clicker() {
   const { appUser } = useAuth();
@@ -29,15 +30,20 @@ export default function Clicker() {
     setLoading(true);
     
     try {
-      // Get location
+      // Get location using Capacitor natively
       let locationData: { lat: number, lng: number } | null = null;
       try {
-        const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(resolve, reject, { 
-            timeout: 5000,
-            enableHighAccuracy: true 
-          });
+        // First check permissions
+        const permission = await Geolocation.checkPermissions();
+        if (permission.location !== 'granted') {
+          await Geolocation.requestPermissions();
+        }
+
+        const position = await Geolocation.getCurrentPosition({
+          enableHighAccuracy: true,
+          timeout: 5000
         });
+        
         locationData = {
           lat: position.coords.latitude,
           lng: position.coords.longitude

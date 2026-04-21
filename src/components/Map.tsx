@@ -98,8 +98,8 @@ export default function MapView() {
     <div className="h-[600px] w-full rounded-2xl overflow-hidden shadow-lg border border-slate-200 relative z-0">
       <MapContainer center={[31.7683, 35.2137]} zoom={8} className="h-full w-full z-0">
         <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution='Map data &copy; <a href="https://www.google.com/maps">Google</a>'
+          url="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
         />
         {users.map((user) => (
           <Marker 
