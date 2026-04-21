@@ -1,0 +1,7 @@
+{
+  "name": "מונה קרקפות",
+  "description": "אפליקציית הפצות שיתופית",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}

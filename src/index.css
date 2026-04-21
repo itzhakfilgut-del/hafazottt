@@ -1,0 +1,41 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --color-primary: var(--primary-color, #2563eb);
+  --color-secondary: var(--secondary-color, #1d4ed8);
+}
+
+:root {
+  --primary-color: #2563eb;
+  --secondary-color: #1d4ed8;
+  --bg-color: #f8fafc;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--bg-color);
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: contain;
+}
+
+/* Prevent text selection on interactive elements */
+.no-select {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Safe area padding for mobile notches */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Hide scrollbar for horizontal scrolling tabs */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
