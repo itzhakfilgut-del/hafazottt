@@ -42,15 +42,22 @@ export default function Leaderboard() {
     if (currentClicks + amount < 0) return;
     try {
       if (amount < 0) {
-        // If decrementing, delete the most recent click document
+        // If decrementing, delete the most recent click document without needing a composite index
         const q = query(
           collection(db, 'clicks'),
-          where('uid', '==', uid),
-          orderBy('timestamp', 'desc'),
-          limit(Math.abs(amount))
+          where('uid', '==', uid)
         );
         const snapshot = await getDocs(q);
-        const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
+        
+        // Sort client-side
+        const sortedDocs = snapshot.docs.sort((a, b) => {
+          const timeA = new Date(a.data().timestamp || 0).getTime();
+          const timeB = new Date(b.data().timestamp || 0).getTime();
+          return timeB - timeA; // Descending
+        });
+        
+        const docsToDelete = sortedDocs.slice(0, Math.abs(amount));
+        const deletePromises = docsToDelete.map(doc => deleteDoc(doc.ref));
         await Promise.all(deletePromises);
       }
 

@@ -20,6 +20,30 @@ export default function Clicker() {
     let watchId: string | null = null;
     let webWatchId: number | null = null;
 
+    const fetchIpGeolocation = async () => {
+      try {
+        // Fetch approximate location based on IP address using ipwho.is (more reliable for free tier/CORS)
+        const response = await fetch('https://ipwho.is/');
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.indexOf("application/json") !== -1) {
+          const data = await response.json();
+          if (data && data.latitude && data.longitude) {
+            setCurrentLocation({
+              lat: data.latitude,
+              lng: data.longitude
+            });
+            console.log("Using IP Geolocation fallback");
+          }
+        } else {
+          console.error("IP Geolocation returned non-JSON response");
+        }
+      } catch (error) {
+        console.error("IP Geolocation failed:", error);
+      }
+    };
+
     const startWebTracking = () => {
       if ('geolocation' in navigator) {
         navigator.geolocation.getCurrentPosition(
@@ -29,7 +53,10 @@ export default function Clicker() {
               lng: position.coords.longitude
             });
           },
-          (err) => console.log("Web geolocation initial error:", err),
+          (err) => {
+            console.log("Web geolocation initial error:", err);
+            fetchIpGeolocation(); // Fallback to IP geolocation if permissions denied
+          },
           { timeout: 10000, enableHighAccuracy: true }
         );
 
@@ -43,6 +70,8 @@ export default function Clicker() {
           (err) => console.log("Web geolocation watch error:", err),
           { timeout: 20000, enableHighAccuracy: true }
         );
+      } else {
+        fetchIpGeolocation();
       }
     };
 
@@ -82,6 +111,9 @@ export default function Clicker() {
               }
             }
           );
+        } else {
+          // Fallback to IP Geolocation if Capacitor permission is denied
+          fetchIpGeolocation();
         }
       } catch (error: any) {
         console.warn("Capacitor Geolocation not available, falling back to Web API:", error.message);
@@ -102,63 +134,78 @@ export default function Clicker() {
     };
   }, []);
 
-  const handleClick = async (e?: React.MouseEvent | React.TouchEvent) => {
+  const [localClicks, setLocalClicks] = useState<number>(0);
+
+  // Sync local clicks with DB so it starts at the right number
+  useEffect(() => {
+    if (appUser?.clicks !== undefined) {
+      // Only sync upwards to prevent local jitter if Firestore is slightly behind
+      setLocalClicks(prev => Math.max(prev, appUser.clicks!));
+    }
+  }, [appUser?.clicks]);
+
+  const handleClick = (e?: React.MouseEvent | React.TouchEvent) => {
     if (e) {
       // Prevent double-tap zoom on mobile
       if ('preventDefault' in e) e.preventDefault();
     }
     
-    if (!appUser || loading) return;
+    if (!appUser) return;
     
     // Haptic feedback
     if ('vibrate' in navigator) {
       navigator.vibrate(50);
     }
 
-    setLoading(true);
+    // Instantly update UI counter optimistically
+    setLocalClicks(prev => prev + 1);
     
-    try {
-      // Now the click is instant! We just use the cached background location
-      const locationData = currentLocation;
+    // Now the click is instant! We just use the cached background location
+    const locationData = currentLocation;
 
-      // Update user clicks
-      const userRef = doc(db, 'users', appUser.uid);
-      const userUpdate: any = {
-        clicks: increment(1)
-      };
-
-      if (locationData) {
-        userUpdate.lastLocation = locationData;
-      }
-      
-      await updateDoc(userRef, userUpdate);
-
-      // Add click record
-      const clickData: any = {
-        uid: appUser.uid,
-        name: appUser.name,
-        yeshiva: appUser.yeshiva,
-        timestamp: new Date().toISOString()
-      };
-      if (locationData) {
-        // Add a tiny random jitter (approx ~10-20 meters) to the coordinates.
-        // This ensures that if a user clicks 10 times without moving, the 10 markers
-        // don't perfectly overlap into a single visible dot on the map.
-        const jitterLat = (Math.random() - 0.5) * 0.0003;
-        const jitterLng = (Math.random() - 0.5) * 0.0003;
-        
-        clickData.location = {
-          lat: locationData.lat + jitterLat,
-          lng: locationData.lng + jitterLng
+    // Fire and forget database updates (do not await)
+    const updateDatabase = async () => {
+      try {
+        // Update user clicks
+        const userRef = doc(db, 'users', appUser.uid);
+        const userUpdate: any = {
+          clicks: increment(1)
         };
-      }
-      await addDoc(collection(db, 'clicks'), clickData);
 
-    } catch (error) {
-      console.error("Error recording click:", error);
-    } finally {
-      setLoading(false);
-    }
+        if (locationData) {
+          userUpdate.lastLocation = locationData;
+        }
+        
+        // Add click record
+        const clickData: any = {
+          uid: appUser.uid,
+          name: appUser.name,
+          yeshiva: appUser.yeshiva,
+          timestamp: new Date().toISOString()
+        };
+        
+        if (locationData) {
+          const jitterLat = (Math.random() - 0.5) * 0.0003;
+          const jitterLng = (Math.random() - 0.5) * 0.0003;
+          
+          clickData.location = {
+            lat: locationData.lat + jitterLat,
+            lng: locationData.lng + jitterLng
+          };
+        }
+        
+        // Execute operations in parallel without blocking clicks
+        await Promise.all([
+          updateDoc(userRef, userUpdate),
+          addDoc(collection(db, 'clicks'), clickData)
+        ]);
+
+      } catch (error) {
+        console.error("Error recording click:", error);
+      }
+    };
+    
+    updateDatabase();
   };
 
   return (
@@ -166,14 +213,13 @@ export default function Clicker() {
       <div className="text-center mb-12">
         <h2 className="text-3xl font-bold text-slate-900 mb-4">{texts.clicker.title}</h2>
         <div className="text-6xl font-black text-blue-600 bg-blue-50 px-8 py-4 rounded-3xl inline-block shadow-inner">
-          {appUser?.clicks || 0}
+          {localClicks}
         </div>
       </div>
 
       <button
         onPointerDown={handleClick}
-        disabled={loading}
-        className="group relative w-48 h-48 bg-gradient-to-br from-blue-500 to-blue-700 rounded-full shadow-2xl hover:shadow-blue-500/50 hover:scale-105 active:scale-95 transition-all duration-200 flex flex-col items-center justify-center text-white disabled:opacity-70 disabled:hover:scale-100 no-select touch-none"
+        className="group relative w-48 h-48 bg-gradient-to-br from-blue-500 to-blue-700 rounded-full shadow-2xl hover:shadow-blue-500/50 hover:scale-105 active:scale-95 transition-all duration-200 flex flex-col items-center justify-center text-white no-select touch-none select-none appearance-none"
       >
         <div className="absolute inset-0 rounded-full bg-white opacity-0 group-hover:opacity-10 transition-opacity"></div>
         <MousePointerClick size={48} className="mb-2" />

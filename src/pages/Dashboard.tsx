@@ -2,15 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { auth } from '../lib/firebase';
-import { LogOut, Map as MapIcon, Trophy, MousePointerClick, ShieldAlert, Download } from 'lucide-react';
+import { LogOut, Map as MapIcon, Trophy, MousePointerClick, ShieldAlert, Download, Navigation } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { APP_TEXTS as FALLBACK_TEXTS } from '../constants';
 import Clicker from '../components/Clicker';
 import MapView from '../components/Map';
 import Leaderboard from '../components/Leaderboard';
 import AdminPanel from '../components/AdminPanel';
+import MyClicks from '../components/MyClicks';
 
-type Tab = 'clicker' | 'map' | 'leaderboard' | 'admin';
+type Tab = 'clicker' | 'map' | 'myclicks' | 'leaderboard' | 'admin';
 
 export default function Dashboard() {
   const { appUser } = useAuth();
@@ -115,6 +116,16 @@ export default function Dashboard() {
             {texts.tabs.map}
           </button>
           <button
+            onClick={() => setActiveTab('myclicks')}
+            className={cn(
+              "flex items-center gap-2 px-6 py-2.5 rounded-lg font-medium text-sm transition-all whitespace-nowrap",
+              activeTab === 'myclicks' ? "bg-blue-50 text-primary shadow-sm" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+            )}
+          >
+            <Navigation size={18} />
+            הלחיצות שלי
+          </button>
+          <button
             onClick={() => setActiveTab('leaderboard')}
             className={cn(
               "flex items-center gap-2 px-6 py-2.5 rounded-lg font-medium text-sm transition-all whitespace-nowrap",
@@ -142,6 +153,7 @@ export default function Dashboard() {
         <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
           {activeTab === 'clicker' && <Clicker />}
           {activeTab === 'map' && <MapView />}
+          {activeTab === 'myclicks' && <MyClicks />}
           {activeTab === 'leaderboard' && <Leaderboard />}
           {activeTab === 'admin' && appUser?.role === 'admin' && <AdminPanel />}
         </div>
@@ -169,6 +181,16 @@ export default function Dashboard() {
           >
             <MapIcon size={20} />
             <span className="text-[10px] font-medium">{texts.tabs.map}</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('myclicks')}
+            className={cn(
+              "flex flex-col items-center justify-center gap-1 flex-1 h-full transition-colors",
+              activeTab === 'myclicks' ? "text-primary" : "text-slate-400"
+            )}
+          >
+            <Navigation size={20} />
+            <span className="text-[10px] font-medium">הלחיצות שלי</span>
           </button>
           <button
             onClick={() => setActiveTab('leaderboard')}
