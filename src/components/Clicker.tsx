@@ -22,22 +22,24 @@ export default function Clicker() {
 
     const fetchIpGeolocation = async () => {
       try {
-        // Fetch approximate location based on IP address using ipwho.is (more reliable for free tier/CORS)
-        const response = await fetch('https://ipwho.is/');
+        // Fetch approximate location based on IP address using GeoJS (robust, no rate limits, CORS friendly)
+        const response = await fetch('https://get.geojs.io/v1/ip/geo.json');
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         
-        const contentType = response.headers.get("content-type");
-        if (contentType && contentType.indexOf("application/json") !== -1) {
-          const data = await response.json();
-          if (data && data.latitude && data.longitude) {
-            setCurrentLocation({
-              lat: data.latitude,
-              lng: data.longitude
-            });
-            console.log("Using IP Geolocation fallback");
-          }
-        } else {
-          console.error("IP Geolocation returned non-JSON response");
+        const textData = await response.text();
+        // If we get an HTML block page instead of JSON, abort silently
+        if (textData.toLowerCase().includes('<!doctype') || textData.toLowerCase().includes('<html')) {
+          console.warn("IP Geolocation blocked by cloudflare/firewall, aborting IP fallback.");
+          return;
+        }
+
+        const data = JSON.parse(textData);
+        const lat = parseFloat(data.latitude);
+        const lng = parseFloat(data.longitude);
+        
+        if (!isNaN(lat) && !isNaN(lng)) {
+          setCurrentLocation({ lat, lng });
+          console.log("Using IP Geolocation fallback");
         }
       } catch (error) {
         console.error("IP Geolocation failed:", error);
@@ -76,6 +78,9 @@ export default function Clicker() {
     };
 
     const startLocationTracking = async () => {
+      // 1. Instantly trigger IP geolocation as a reliable, fast baseline
+      fetchIpGeolocation();
+
       try {
         // Automatically ask for permissions right when the user enters the screen
         let permission = await Geolocation.checkPermissions();
@@ -83,7 +88,7 @@ export default function Clicker() {
           permission = await Geolocation.requestPermissions();
         }
 
-        // If granted, let's start a continuous watcher for smooth, instant clicks
+        // If granted, let's start a continuous watcher for precise location
         if (permission.location === 'granted') {
           // Fallback: Also do one very fast initial check using cached/network location
           try {
@@ -111,9 +116,6 @@ export default function Clicker() {
               }
             }
           );
-        } else {
-          // Fallback to IP Geolocation if Capacitor permission is denied
-          fetchIpGeolocation();
         }
       } catch (error: any) {
         console.warn("Capacitor Geolocation not available, falling back to Web API:", error.message);
@@ -145,11 +147,6 @@ export default function Clicker() {
   }, [appUser?.clicks]);
 
   const handleClick = (e?: React.MouseEvent | React.TouchEvent) => {
-    if (e) {
-      // Prevent double-tap zoom on mobile
-      if ('preventDefault' in e) e.preventDefault();
-    }
-    
     if (!appUser) return;
     
     // Haptic feedback
@@ -166,14 +163,37 @@ export default function Clicker() {
     // Fire and forget database updates (do not await)
     const updateDatabase = async () => {
       try {
+        let finalLocation = locationData;
+        
+        // If they clicked so fast that even the IP baseline hasn't finished, fetch it inline
+        if (!finalLocation) {
+          try {
+            const response = await fetch('https://get.geojs.io/v1/ip/geo.json');
+            if (response.ok) {
+              const textData = await response.text();
+              if (!textData.toLowerCase().includes('<!doctype') && !textData.toLowerCase().includes('<html')) {
+                const data = JSON.parse(textData);
+                const lat = parseFloat(data.latitude);
+                const lng = parseFloat(data.longitude);
+                if (!isNaN(lat) && !isNaN(lng)) {
+                  finalLocation = { lat, lng };
+                  setCurrentLocation(finalLocation);
+                }
+              }
+            }
+          } catch (e) {
+            console.log("Inline JIT location fetch failed", e);
+          }
+        }
+
         // Update user clicks
         const userRef = doc(db, 'users', appUser.uid);
         const userUpdate: any = {
           clicks: increment(1)
         };
 
-        if (locationData) {
-          userUpdate.lastLocation = locationData;
+        if (finalLocation) {
+          userUpdate.lastLocation = finalLocation;
         }
         
         // Add click record
@@ -184,13 +204,13 @@ export default function Clicker() {
           timestamp: new Date().toISOString()
         };
         
-        if (locationData) {
+        if (finalLocation) {
           const jitterLat = (Math.random() - 0.5) * 0.0003;
           const jitterLng = (Math.random() - 0.5) * 0.0003;
           
           clickData.location = {
-            lat: locationData.lat + jitterLat,
-            lng: locationData.lng + jitterLng
+            lat: finalLocation.lat + jitterLat,
+            lng: finalLocation.lng + jitterLng
           };
         }
         
@@ -218,8 +238,8 @@ export default function Clicker() {
       </div>
 
       <button
-        onPointerDown={handleClick}
-        className="group relative w-48 h-48 bg-gradient-to-br from-blue-500 to-blue-700 rounded-full shadow-2xl hover:shadow-blue-500/50 hover:scale-105 active:scale-95 transition-all duration-200 flex flex-col items-center justify-center text-white no-select touch-none select-none appearance-none"
+        onClick={handleClick}
+        className="group relative w-48 h-48 bg-gradient-to-br from-blue-500 to-blue-700 rounded-full shadow-2xl hover:shadow-blue-500/50 hover:scale-105 active:scale-95 transition-all duration-200 flex flex-col items-center justify-center text-white no-select touch-manipulation select-none appearance-none"
       >
         <div className="absolute inset-0 rounded-full bg-white opacity-0 group-hover:opacity-10 transition-opacity"></div>
         <MousePointerClick size={48} className="mb-2" />

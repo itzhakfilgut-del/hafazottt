@@ -50,13 +50,15 @@ interface ClickRecord {
   timestamp: string;
 }
 
-const createCustomIcon = (name: string, yeshiva: string) => {
+const createCustomIcon = (name: string, yeshiva: string, isRecent: boolean = false) => {
   const initial = name ? name.charAt(0).toUpperCase() : '?';
   const borderColor = getColorForYeshiva(yeshiva || '');
   
+  // Convert hex to rgb for the shadow Ripple variable (simple approx to avoid complex hex parsing, just pass the border color)
+  
   const html = `
-    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; margin-top: -10px;">
-      <div style="width: 24px; height: 24px; background-color: white; color: ${borderColor}; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); border: 2px solid ${borderColor}; overflow: hidden;">
+    <div class="animate-marker-pop" style="display: flex; flex-direction: column; align-items: center; justify-content: center; margin-top: -10px; --marker-color: ${borderColor}99;">
+      <div class="${isRecent ? 'animate-marker-ripple' : ''}" style="width: 24px; height: 24px; background-color: white; color: ${borderColor}; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); border: 2px solid ${borderColor}; overflow: hidden;">
         ${initial}
       </div>
     </div>
@@ -64,7 +66,7 @@ const createCustomIcon = (name: string, yeshiva: string) => {
 
   return L.divIcon({
     html,
-    className: 'custom-leaflet-icon',
+    className: 'custom-leaflet-icon bg-transparent border-none', // Override defaults just in case
     iconSize: [24, 24],
     iconAnchor: [12, 12],
     popupAnchor: [0, -12]
@@ -130,44 +132,48 @@ export default function MapView() {
           attribution='Map data &copy; <a href="https://www.google.com/maps">Google</a>'
           url="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
         />
-        {clickRecords.map((record) => (
-          <Marker 
-            key={record.id} 
-            position={[record.location.lat, record.location.lng]}
-            icon={createCustomIcon(record.name, record.yeshiva)}
-          >
-            <Popup>
-              <div className="text-right" dir="rtl">
-                <strong className="block text-lg">{record.name}</strong>
-                <span className="block text-slate-600">{record.yeshiva}</span>
-                <span className="block text-xs text-slate-400 mt-1" dir="ltr">
-                  {new Date(record.timestamp).toLocaleString('he-IL')}
-                </span>
-                
-                {isAdmin && (
-                  <button
-                    onPointerDown={(e) => {
-                      e.stopPropagation();
-                    }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteClick(record);
-                    }}
-                    onTouchEnd={(e) => {
-                      e.stopPropagation();
-                      e.preventDefault();
-                      handleDeleteClick(record);
-                    }}
-                    className="mt-3 flex items-center justify-center gap-1.5 w-full py-1.5 px-3 bg-red-50 text-red-600 hover:bg-red-100 rounded-md transition-colors text-sm font-medium border border-red-100 touch-none select-none"
-                  >
-                    <Trash2 size={14} />
-                    מחק נקודה
-                  </button>
-                )}
-              </div>
-            </Popup>
-          </Marker>
-        ))}
+        {clickRecords.map((record) => {
+          // Check if this click happened in the last 15 seconds
+          const isRecent = (Date.now() - new Date(record.timestamp).getTime()) < 15000;
+          return (
+            <Marker 
+              key={record.id} 
+              position={[record.location.lat, record.location.lng]}
+              icon={createCustomIcon(record.name, record.yeshiva, isRecent)}
+            >
+              <Popup>
+                <div className="text-right" dir="rtl">
+                  <strong className="block text-lg">{record.name}</strong>
+                  <span className="block text-slate-600">{record.yeshiva}</span>
+                  <span className="block text-xs text-slate-400 mt-1" dir="ltr">
+                    {new Date(record.timestamp).toLocaleString('he-IL')}
+                  </span>
+                  
+                  {isAdmin && (
+                    <button
+                      onPointerDown={(e) => {
+                        e.stopPropagation();
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteClick(record);
+                      }}
+                      onTouchEnd={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        handleDeleteClick(record);
+                      }}
+                      className="mt-3 flex items-center justify-center gap-1.5 w-full py-1.5 px-3 bg-red-50 text-red-600 hover:bg-red-100 rounded-md transition-colors text-sm font-medium border border-red-100 touch-none select-none"
+                    >
+                      <Trash2 size={14} />
+                      מחק נקודה
+                    </button>
+                  )}
+                </div>
+              </Popup>
+            </Marker>
+          );
+        })}
       </MapContainer>
     </div>
   );
