@@ -2,6 +2,7 @@ import React from 'react';
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
+import { CampaignProvider } from './contexts/CampaignContext';
 import { APP_TEXTS as FALLBACK_TEXTS } from './constants';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -81,22 +82,24 @@ export default function App() {
   return (
     <SettingsProvider>
       <AuthProvider>
-        <Router>
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
-            <Route path="/waiting" element={<Waiting />} />
-            <Route
-              path="/"
-              element={
-                <ProtectedRoute>
-                  <Dashboard />
-                </ProtectedRoute>
-              }
-            />
-          </Routes>
-          <WhatsAppBubble />
-        </Router>
+        <CampaignProvider>
+          <Router>
+            <Routes>
+              <Route path="/login" element={<Login />} />
+              <Route path="/register" element={<Register />} />
+              <Route path="/waiting" element={<Waiting />} />
+              <Route
+                path="/"
+                element={
+                  <ProtectedRoute>
+                    <Dashboard />
+                  </ProtectedRoute>
+                }
+              />
+            </Routes>
+            <WhatsAppBubble />
+          </Router>
+        </CampaignProvider>
       </AuthProvider>
     </SettingsProvider>
   );

@@ -11,7 +11,11 @@ export interface AppUser {
   status: 'pending' | 'approved' | 'rejected';
   role: 'user' | 'admin';
   clicks: number;
+  candleClicks?: number;
   lastLocation?: { lat: number; lng: number };
+  defaultCampaign?: 'tefillin' | 'candles';
+  gender?: 'boy' | 'girl';
+  phone?: string;
 }
 
 interface AuthContextType {

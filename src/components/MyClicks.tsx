@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { collection, query, where, orderBy, onSnapshot, doc, deleteDoc, updateDoc, increment } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
+import { useCampaign } from '../contexts/CampaignContext';
 import { Trash2, MapPin, Clock, Navigation } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 import { APP_TEXTS as FALLBACK_TEXTS } from '../constants';
@@ -19,16 +20,21 @@ export default function MyClicks() {
   const [myClicks, setMyClicks] = useState<ClickRecord[]>([]);
   const { appUser } = useAuth();
   const { settings } = useSettings();
+  const { campaign } = useCampaign();
   const texts = settings?.texts || FALLBACK_TEXTS;
   const theme = settings?.theme;
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
+  const isTefillin = campaign === 'tefillin';
+
   useEffect(() => {
     if (!appUser) return;
 
+    const targetCollection = isTefillin ? 'clicks' : 'candle_clicks';
+
     // Fetch clicks specific to the logged-in user without orderBy to avoid needing a composite index
     const q = query(
-      collection(db, 'clicks'),
+      collection(db, targetCollection),
       where('uid', '==', appUser.uid)
     );
 
@@ -61,17 +67,19 @@ export default function MyClicks() {
     );
 
     return () => unsubscribe();
-  }, [appUser]);
+  }, [appUser, campaign, isTefillin]);
 
   const handleDeleteClick = async (record: ClickRecord) => {
     setIsDeleting(record.id);
     try {
+      const targetCollection = isTefillin ? 'clicks' : 'candle_clicks';
       // 1. Delete the click record itself
-      await deleteDoc(doc(db, 'clicks', record.id));
+      await deleteDoc(doc(db, targetCollection, record.id));
       
       // 2. Decrement the user's total clicks
+      const updateField = isTefillin ? 'clicks' : 'candleClicks';
       await updateDoc(doc(db, 'users', record.uid), {
-        clicks: increment(-1)
+        [updateField]: increment(-1)
       });
     } catch (error) {
       console.error("Error deleting click:", error);
@@ -95,7 +103,7 @@ export default function MyClicks() {
         {myClicks.map((record) => (
           <div key={record.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between hover:bg-slate-50 transition-colors gap-4">
             <div className="flex items-start gap-3">
-              <div className="mt-1 w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 shrink-0">
+              <div className={`mt-1 w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${isTefillin ? 'bg-blue-50 text-blue-600' : 'bg-amber-50 text-amber-600'}`}>
                 <MapPin size={20} />
               </div>
               <div className="text-right">
@@ -107,7 +115,7 @@ export default function MyClicks() {
                   href={getGoogleMapsUrl(record.location.lat, record.location.lng)}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-sm text-blue-500 hover:text-blue-700 hover:underline mt-1 inline-block"
+                  className={`text-sm hover:underline mt-1 inline-block ${isTefillin ? 'text-blue-500 hover:text-blue-700' : 'text-amber-500 hover:text-amber-700'}`}
                 >
                   הצג במפה ({record.location.lat.toFixed(4)}, {record.location.lng.toFixed(4)})
                 </a>

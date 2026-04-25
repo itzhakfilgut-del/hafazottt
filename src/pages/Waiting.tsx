@@ -15,9 +15,9 @@ export default function Waiting() {
         <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-amber-100 text-amber-600 mb-6">
           <Clock size={40} />
         </div>
-        <h2 className="text-2xl font-bold text-slate-900 mb-2">{texts.waiting.title}</h2>
+        <h2 className="text-2xl font-bold text-slate-900 mb-2">{texts.auth.waitingTitle}</h2>
         <p className="text-slate-600 mb-8">
-          {texts.waiting.message}
+          {texts.auth.waitingMessage}
         </p>
         <button
           onClick={() => auth.signOut()}

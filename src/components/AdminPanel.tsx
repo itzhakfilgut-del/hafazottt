@@ -5,6 +5,7 @@ import { AppUser } from '../contexts/AuthContext';
 import { Check, X, Trash2, Edit2, Shield, ShieldAlert, Plus, Building2, Settings, Palette, Type as TypeIcon, Upload, Loader2 } from 'lucide-react';
 import { APP_TEXTS as FALLBACK_TEXTS } from '../constants';
 import { useSettings } from '../contexts/SettingsContext';
+import { useCampaign } from '../contexts/CampaignContext';
 
 interface Yeshiva {
   id: string;
@@ -48,16 +49,25 @@ const TextEditor = ({ obj, path, onChange }: { obj: any, path: string[], onChang
 
 export default function AdminPanel() {
   const { settings, updateSettings } = useSettings();
+  const { campaign } = useCampaign();
   const texts = settings?.texts || FALLBACK_TEXTS;
   const [users, setUsers] = useState<AppUser[]>([]);
   const [yeshivas, setYeshivas] = useState<Yeshiva[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState({ name: '', yeshiva: '', clicks: 0 });
+  const [editForm, setEditForm] = useState({ name: '', yeshiva: '', clicks: 0, candleClicks: 0 });
   const [newYeshivaName, setNewYeshivaName] = useState('');
   
   const [activeAdminTab, setActiveAdminTab] = useState<'users' | 'yeshivas' | 'settings'>('users');
   const [tempSettings, setTempSettings] = useState(settings);
   const [isSaving, setIsSaving] = useState(false);
+
+  const isTefillin = campaign === 'tefillin';
+  const institutionTitle = isTefillin ? texts.admin.yeshivasTitle : 'ניהול אולפנות';
+  const institutionLabel = isTefillin ? 'ישיבה' : 'אולפנה';
+  const addInstitutionText = isTefillin ? texts.admin.addYeshiva : 'הוסף אולפנה';
+  const addInstitutionPlaceholder = isTefillin ? texts.admin.addYeshivaPlaceholder : 'הכנס שם אולפנה...';
+  const noInstitutionsText = isTefillin ? 'אין ישיבות במערכת' : 'אין אולפנות במערכת';
+  const confirmDeleteInstitutionText = isTefillin ? 'מחק ישיבה' : 'מחק אולפנה';
   const [isUploading, setIsUploading] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
@@ -215,7 +225,7 @@ export default function AdminPanel() {
 
   const startEdit = (user: AppUser) => {
     setEditingId(user.uid);
-    setEditForm({ name: user.name, yeshiva: user.yeshiva, clicks: user.clicks || 0 });
+    setEditForm({ name: user.name, yeshiva: user.yeshiva, clicks: user.clicks || 0, candleClicks: user.candleClicks || 0 });
   };
 
   const saveEdit = async (uid: string) => {
@@ -224,14 +234,18 @@ export default function AdminPanel() {
 
     const newClicks = Number(editForm.clicks);
     const oldClicks = user.clicks || 0;
+    
+    const newCandleClicks = Number(editForm.candleClicks);
+    const oldCandleClicks = user.candleClicks || 0;
 
     const updateData: any = {
       name: editForm.name,
       yeshiva: editForm.yeshiva,
-      clicks: newClicks
+      clicks: newClicks,
+      candleClicks: newCandleClicks
     };
 
-    // If clicks are reduced, delete the most recent click documents
+    // If tefillin clicks are reduced, delete the most recent click documents
     if (newClicks < oldClicks) {
       try {
         const diff = oldClicks - newClicks;
@@ -252,12 +266,36 @@ export default function AdminPanel() {
         const deletePromises = docsToDelete.map(doc => deleteDoc(doc.ref));
         await Promise.all(deletePromises);
       } catch (error) {
-        console.error("Error deleting click records:", error);
+        console.error("Error deleting old tefillin clicks manually:", error);
+      }
+    }
+    
+    // If candle clicks are reduced, delete the most recent click documents
+    if (newCandleClicks < oldCandleClicks) {
+      try {
+        const diff = oldCandleClicks - newCandleClicks;
+        const q = query(
+          collection(db, 'candle_clicks'),
+          where('uid', '==', uid)
+        );
+        const snapshot = await getDocs(q);
+        
+        const sortedDocs = snapshot.docs.sort((a, b) => {
+          const timeA = new Date(a.data().timestamp || 0).getTime();
+          const timeB = new Date(b.data().timestamp || 0).getTime();
+          return timeB - timeA;
+        });
+        
+        const docsToDelete = sortedDocs.slice(0, diff);
+        const deletePromises = docsToDelete.map(doc => deleteDoc(doc.ref));
+        await Promise.all(deletePromises);
+      } catch (error) {
+        console.error("Error deleting old candle clicks manually:", error);
       }
     }
 
     // If clicks are reset to 0, also clear lastLocation
-    if (newClicks === 0) {
+    if (newClicks === 0 && newCandleClicks === 0) {
       updateData.lastLocation = { lat: 0, lng: 0 };
     }
 
@@ -277,7 +315,7 @@ export default function AdminPanel() {
   };
 
   const handleDeleteYeshiva = async (id: string, name: string) => {
-    if (window.confirm(`האם אתה בטוח שברצונך למחוק את הישיבה "${name}"?`)) {
+    if (window.confirm(`האם אתה בטוח שברצונך למחוק את ה${isTefillin ? 'ישיבה' : 'אולפנה'} "${name}"?`)) {
       try {
         await deleteDoc(doc(db, 'yeshivas', id));
       } catch (error) {
@@ -300,7 +338,7 @@ export default function AdminPanel() {
           onClick={() => setActiveAdminTab('yeshivas')}
           className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeAdminTab === 'yeshivas' ? 'bg-primary text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}
         >
-          {texts.admin.yeshivasTitle}
+          {institutionTitle}
         </button>
         <button
           onClick={() => setActiveAdminTab('settings')}
@@ -314,7 +352,7 @@ export default function AdminPanel() {
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300">
           <div className="p-6 border-b border-slate-200 bg-slate-50 flex items-center gap-3">
             <Building2 className="text-primary" size={24} />
-            <h2 className="text-xl font-bold text-slate-900">{texts.admin.yeshivasTitle}</h2>
+            <h2 className="text-xl font-bold text-slate-900">{institutionTitle}</h2>
           </div>
           <div className="p-6">
             <form onSubmit={handleAddYeshiva} className="flex gap-3 mb-6">
@@ -322,7 +360,7 @@ export default function AdminPanel() {
                 type="text"
                 value={newYeshivaName}
                 onChange={(e) => setNewYeshivaName(e.target.value)}
-                placeholder={texts.admin.addYeshivaPlaceholder}
+                placeholder={addInstitutionPlaceholder}
                 className="flex-1 px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary outline-none transition-all"
               />
               <button
@@ -331,7 +369,7 @@ export default function AdminPanel() {
                 className="flex items-center gap-2 px-6 py-2 bg-primary hover:bg-secondary text-white font-medium rounded-xl transition-colors disabled:opacity-50"
               >
                 <Plus size={18} />
-                {texts.admin.addYeshiva}
+                {addInstitutionText}
               </button>
             </form>
             
@@ -342,14 +380,14 @@ export default function AdminPanel() {
                   <button
                     onClick={() => handleDeleteYeshiva(yeshiva.id, yeshiva.name)}
                     className="text-slate-400 hover:text-red-500 transition-colors"
-                    title="מחק ישיבה"
+                    title={confirmDeleteInstitutionText}
                   >
                     <X size={16} />
                   </button>
                 </div>
               ))}
               {yeshivas.length === 0 && (
-                <div className="text-slate-500 text-sm">אין ישיבות במערכת</div>
+                <div className="text-slate-500 text-sm">{noInstitutionsText}</div>
               )}
             </div>
           </div>
@@ -369,8 +407,11 @@ export default function AdminPanel() {
                 <tr>
                   <th className="p-4 font-medium">{texts.admin.columns.name}</th>
                   <th className="p-4 font-medium">{texts.admin.columns.email}</th>
+                  <th className="p-4 font-medium">מין</th>
+                  <th className="p-4 font-medium">טלפון</th>
                   <th className="p-4 font-medium">{texts.admin.columns.yeshiva}</th>
-                  <th className="p-4 font-medium">לחיצות</th>
+                  <th className="p-4 font-medium" title="תפילין">תפילין</th>
+                  <th className="p-4 font-medium" title="נרות שבת">נרות שבת</th>
                   <th className="p-4 font-medium">{texts.admin.columns.status}</th>
                   <th className="p-4 font-medium">תפקיד</th>
                   <th className="p-4 font-medium">{texts.admin.columns.actions}</th>
@@ -392,6 +433,12 @@ export default function AdminPanel() {
                       )}
                     </td>
                     <td className="p-4 text-slate-500" dir="ltr">{user.email}</td>
+                    <td className="p-4 text-slate-500 text-sm">
+                      {user.gender === 'boy' ? 'בן' : user.gender === 'girl' ? 'בת' : '-'}
+                    </td>
+                    <td className="p-4 text-slate-500 text-sm" dir="ltr">
+                      {user.phone || '-'}
+                    </td>
                     <td className="p-4">
                       {editingId === user.uid ? (
                         <input
@@ -410,10 +457,24 @@ export default function AdminPanel() {
                           type="number"
                           value={editForm.clicks}
                           onChange={(e) => setEditForm({ ...editForm, clicks: parseInt(e.target.value) || 0 })}
-                          className="border rounded px-2 py-1 w-20"
+                          className="border rounded px-2 py-1 w-16 text-center"
+                          title="תפילין"
                         />
                       ) : (
-                        <span className="font-bold text-primary">{user.clicks || 0}</span>
+                        <span className="font-bold text-blue-600">{user.clicks || 0}</span>
+                      )}
+                    </td>
+                    <td className="p-4">
+                      {editingId === user.uid ? (
+                        <input
+                          type="number"
+                          value={editForm.candleClicks}
+                          onChange={(e) => setEditForm({ ...editForm, candleClicks: parseInt(e.target.value) || 0 })}
+                          className="border rounded px-2 py-1 w-16 text-center"
+                          title="נרות שבת"
+                        />
+                      ) : (
+                        <span className="font-bold text-orange-600">{user.candleClicks || 0}</span>
                       )}
                     </td>
                     <td className="p-4">
@@ -514,6 +575,42 @@ export default function AdminPanel() {
             {/* Theme Settings */}
             <div className="space-y-6">
               <div className="flex items-center gap-2 text-slate-900 font-bold border-b pb-2">
+                <Palette size={20} />
+                <h3>מאפיינים כלליים</h3>
+              </div>
+              
+              <div className="space-y-4">
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                  <label className="block font-medium text-slate-900 mb-2">מסך ברירת מחדל</label>
+                  <p className="text-sm text-slate-500 mb-3">בחר את המצב שיוצג למשתמשים בפעם הראשונה שהם נכנסים.</p>
+                  <div className="flex gap-4">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input 
+                        type="radio" 
+                        name="defaultCampaign" 
+                        value="tefillin"
+                        checked={tempSettings.defaultCampaign === 'tefillin' || !tempSettings.defaultCampaign}
+                        onChange={(e) => setTempSettings({ ...tempSettings, defaultCampaign: 'tefillin' })}
+                        className="text-primary focus:ring-primary h-4 w-4"
+                      />
+                      <span className="text-slate-700 font-medium">תפילין</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input 
+                        type="radio" 
+                        name="defaultCampaign" 
+                        value="candles"
+                        checked={tempSettings.defaultCampaign === 'candles'}
+                        onChange={(e) => setTempSettings({ ...tempSettings, defaultCampaign: 'candles' })}
+                        className="text-primary focus:ring-primary h-4 w-4"
+                      />
+                      <span className="text-slate-700 font-medium">נרות שבת</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 text-slate-900 font-bold border-b pb-2 mt-6">
                 <Palette size={20} />
                 <h3>עיצוב וצבעים</h3>
               </div>

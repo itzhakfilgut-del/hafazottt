@@ -1,19 +1,37 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
+import { useCampaign } from '../contexts/CampaignContext';
 import { doc, updateDoc, collection, addDoc, increment } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { MousePointerClick } from 'lucide-react';
+import { MousePointerClick, Flame } from 'lucide-react';
 import { APP_TEXTS as FALLBACK_TEXTS } from '../constants';
 import { Geolocation } from '@capacitor/geolocation';
 
 export default function Clicker() {
   const { appUser } = useAuth();
   const { settings } = useSettings();
+  const { campaign } = useCampaign();
   const texts = settings?.texts || FALLBACK_TEXTS;
   const theme = settings?.theme;
   const [loading, setLoading] = useState(false);
   const [currentLocation, setCurrentLocation] = useState<{lat: number, lng: number} | null>(null);
+
+  // Sync local clicks with DB based on campaign
+  const [localClicks, setLocalClicks] = useState<number>(0);
+  
+  const userClicks = campaign === 'candles' ? (appUser?.candleClicks || 0) : (appUser?.clicks || 0);
+
+  useEffect(() => {
+    if (userClicks !== undefined) {
+      setLocalClicks(Math.max(localClicks, userClicks));
+    }
+  }, [userClicks, campaign]); // Also reset/update when campaign changes
+  
+  // Set local clicks instantly on campaign toggle
+  useEffect(() => {
+    setLocalClicks(userClicks);
+  }, [campaign]);
 
   // Initialize and track position constantly in the background
   useEffect(() => {
@@ -136,16 +154,6 @@ export default function Clicker() {
     };
   }, []);
 
-  const [localClicks, setLocalClicks] = useState<number>(0);
-
-  // Sync local clicks with DB so it starts at the right number
-  useEffect(() => {
-    if (appUser?.clicks !== undefined) {
-      // Only sync upwards to prevent local jitter if Firestore is slightly behind
-      setLocalClicks(prev => Math.max(prev, appUser.clicks!));
-    }
-  }, [appUser?.clicks]);
-
   const handleClick = (e?: React.MouseEvent | React.TouchEvent) => {
     if (!appUser) return;
     
@@ -186,11 +194,16 @@ export default function Clicker() {
           }
         }
 
-        // Update user clicks
+        // Update user clicks based on campaign
+        const isTefillin = campaign === 'tefillin';
         const userRef = doc(db, 'users', appUser.uid);
-        const userUpdate: any = {
-          clicks: increment(1)
-        };
+        const userUpdate: any = {};
+        
+        if (isTefillin) {
+          userUpdate.clicks = increment(1);
+        } else {
+          userUpdate.candleClicks = increment(1);
+        }
 
         if (finalLocation) {
           userUpdate.lastLocation = finalLocation;
@@ -201,7 +214,8 @@ export default function Clicker() {
           uid: appUser.uid,
           name: appUser.name,
           yeshiva: appUser.yeshiva,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          type: campaign // Keep track of the type just in case we share the same collection in the future, though we use separate collections
         };
         
         if (finalLocation) {
@@ -214,10 +228,12 @@ export default function Clicker() {
           };
         }
         
+        const targetCollection = isTefillin ? 'clicks' : 'candle_clicks';
+        
         // Execute operations in parallel without blocking clicks
         await Promise.all([
           updateDoc(userRef, userUpdate),
-          addDoc(collection(db, 'clicks'), clickData)
+          addDoc(collection(db, targetCollection), clickData)
         ]);
 
       } catch (error) {
@@ -228,22 +244,44 @@ export default function Clicker() {
     updateDatabase();
   };
 
+  const isTefillin = campaign === 'tefillin';
+  const displayTitle = isTefillin ? texts.clicker.title : "הדלקת נרות שבת";
+  
+  // Dynamically set text based on gender
+  let clickText = texts.clicker.clickHere;
+  if (appUser?.gender === 'boy') {
+    clickText = "לחץ כאן!";
+  } else if (appUser?.gender === 'girl') {
+    clickText = "לחצי כאן!";
+  }
+  
+  const displayClickText = isTefillin ? clickText : "הדלקתי!";
+  
+  const titleColor = isTefillin ? "text-blue-600 bg-blue-50" : "text-amber-600 bg-amber-50";
+  const buttonGradient = isTefillin 
+    ? "from-blue-500 to-blue-700 hover:shadow-blue-500/50" 
+    : "from-amber-500 to-orange-600 hover:shadow-orange-500/50";
+
   return (
     <div className="flex flex-col items-center justify-center py-12">
       <div className="text-center mb-12">
-        <h2 className="text-3xl font-bold text-slate-900 mb-4">{texts.clicker.title}</h2>
-        <div className="text-6xl font-black text-blue-600 bg-blue-50 px-8 py-4 rounded-3xl inline-block shadow-inner">
+        <h2 className="text-3xl font-bold text-slate-900 mb-4">{displayTitle}</h2>
+        <div className={`text-6xl font-black px-8 py-4 rounded-3xl inline-block shadow-inner ${titleColor}`}>
           {localClicks}
         </div>
       </div>
 
       <button
         onClick={handleClick}
-        className="group relative w-48 h-48 bg-gradient-to-br from-blue-500 to-blue-700 rounded-full shadow-2xl hover:shadow-blue-500/50 hover:scale-105 active:scale-95 transition-all duration-200 flex flex-col items-center justify-center text-white no-select touch-manipulation select-none appearance-none"
+        className={`group relative w-48 h-48 bg-gradient-to-br rounded-full shadow-2xl hover:scale-105 active:scale-95 transition-all duration-200 flex flex-col items-center justify-center text-white no-select touch-manipulation select-none appearance-none ${buttonGradient}`}
       >
         <div className="absolute inset-0 rounded-full bg-white opacity-0 group-hover:opacity-10 transition-opacity"></div>
-        <MousePointerClick size={48} className="mb-2" />
-        <span className="text-2xl font-bold">{texts.clicker.clickHere}</span>
+        {isTefillin ? (
+          <MousePointerClick size={48} className="mb-2" />
+        ) : (
+          <Flame size={48} className="mb-2 text-yellow-200" />
+        )}
+        <span className="text-2xl font-bold">{displayClickText}</span>
       </button>
       
       <p className="mt-8 text-slate-500 text-sm">

@@ -6,14 +6,12 @@ import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
+import { useCampaign } from '../contexts/CampaignContext';
 import { APP_TEXTS as FALLBACK_TEXTS } from '../constants';
 import { Trash2 } from 'lucide-react';
 
-const getColorForYeshiva = (yeshivaName: string) => {
-  if (!yeshivaName) return '#3b82f6'; // default blue
-  
-  // Special case for Ramat Gan as requested
-  if (yeshivaName.includes('רמת גן')) return '#22c55e'; // green
+const getColorForYeshiva = (yeshivaName: string, isCandles: boolean = false) => {
+  if (!yeshivaName) return isCandles ? '#f59e0b' : '#3b82f6'; 
   
   // Hash function for other yeshivas
   let hash = 0;
@@ -21,24 +19,16 @@ const getColorForYeshiva = (yeshivaName: string) => {
     hash = yeshivaName.charCodeAt(i) + ((hash << 5) - hash);
   }
   
-  // Nice vibrant colors suitable for map markers
-  const colors = [
-    '#ef4444', // red
-    '#f97316', // orange
-    '#f59e0b', // amber
-    '#eab308', // yellow
-    '#84cc16', // lime
-    '#10b981', // emerald
-    '#06b6d4', // cyan
-    '#0ea5e9', // sky
-    '#3b82f6', // blue
-    '#6366f1', // indigo
-    '#8b5cf6', // violet
-    '#d946ef', // fuchsia
-    '#f43f5e', // rose
-  ];
+  if (isCandles) {
+    const fireColors = ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#ea580c', '#c2410c'];
+    return fireColors[Math.abs(hash) % fireColors.length];
+  }
   
-  return colors[Math.abs(hash) % colors.length];
+  const defaultColors = [
+    '#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#10b981', 
+    '#06b6d4', '#0ea5e9', '#3b82f6', '#6366f1', '#8b5cf6', '#d946ef', '#f43f5e',
+  ];
+  return defaultColors[Math.abs(hash) % defaultColors.length];
 };
 
 interface ClickRecord {
@@ -50,11 +40,9 @@ interface ClickRecord {
   timestamp: string;
 }
 
-const createCustomIcon = (name: string, yeshiva: string, isRecent: boolean = false) => {
+const createCustomIcon = (name: string, yeshiva: string, isRecent: boolean = false, isCandles: boolean = false) => {
   const initial = name ? name.charAt(0).toUpperCase() : '?';
-  const borderColor = getColorForYeshiva(yeshiva || '');
-  
-  // Convert hex to rgb for the shadow Ripple variable (simple approx to avoid complex hex parsing, just pass the border color)
+  const borderColor = getColorForYeshiva(yeshiva || '', isCandles);
   
   const html = `
     <div class="animate-marker-pop" style="display: flex; flex-direction: column; align-items: center; justify-content: center; margin-top: -10px; --marker-color: ${borderColor}99;">
@@ -78,12 +66,17 @@ export default function MapView() {
   const { appUser } = useAuth();
   const isAdmin = appUser?.role === 'admin';
   const { settings } = useSettings();
+  const { campaign } = useCampaign();
   const texts = settings?.texts || FALLBACK_TEXTS;
   const theme = settings?.theme;
 
+  const isTefillin = campaign === 'tefillin';
+
   useEffect(() => {
-    // Fetch all clicks
-    const q = query(collection(db, 'clicks'));
+    // Fetch clicks based on campaign
+    const targetCollection = isTefillin ? 'clicks' : 'candle_clicks';
+    const q = query(collection(db, targetCollection));
+    
     const unsubscribe = onSnapshot(
       q, 
       (snapshot) => {
@@ -109,16 +102,18 @@ export default function MapView() {
     );
 
     return () => unsubscribe();
-  }, []);
+  }, [campaign, isTefillin]);
 
   const handleDeleteClick = async (record: ClickRecord) => {
     try {
+      const targetCollection = isTefillin ? 'clicks' : 'candle_clicks';
       // 1. Delete the click record itself
-      await deleteDoc(doc(db, 'clicks', record.id));
+      await deleteDoc(doc(db, targetCollection, record.id));
       
       // 2. Decrement the user's total clicks
+      const updateField = isTefillin ? 'clicks' : 'candleClicks';
       await updateDoc(doc(db, 'users', record.uid), {
-        clicks: increment(-1)
+        [updateField]: increment(-1)
       });
     } catch (error) {
       console.error("Error deleting click:", error);
@@ -139,7 +134,7 @@ export default function MapView() {
             <Marker 
               key={record.id} 
               position={[record.location.lat, record.location.lng]}
-              icon={createCustomIcon(record.name, record.yeshiva, isRecent)}
+              icon={createCustomIcon(record.name, record.yeshiva, isRecent, !isTefillin)}
             >
               <Popup>
                 <div className="text-right" dir="rtl">

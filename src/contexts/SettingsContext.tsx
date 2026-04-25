@@ -4,6 +4,7 @@ import { db } from '../lib/firebase';
 import { APP_TEXTS } from '../constants';
 
 interface SiteSettings {
+  defaultCampaign?: 'tefillin' | 'candles';
   texts: typeof APP_TEXTS;
   theme: {
     primaryColor: string;
@@ -20,6 +21,7 @@ interface SettingsContextType {
 }
 
 const defaultSettings: SiteSettings = {
+  defaultCampaign: 'tefillin',
   texts: APP_TEXTS,
   theme: {
     primaryColor: '#2563eb',
