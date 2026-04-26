@@ -19,7 +19,8 @@ export default function Leaderboard() {
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
 
   const isTefillin = campaign === 'tefillin';
-  const sortField = isTefillin ? 'clicks' : 'candleClicks';
+  const isOther = campaign === 'other';
+  const sortField = isTefillin ? 'clicks' : isOther ? 'otherClicks' : 'candleClicks';
 
   useEffect(() => {
     // You must create a composite index for candleClicks on Firebase if you orderBy it, 
@@ -33,7 +34,7 @@ export default function Leaderboard() {
         const newUsers: AppUser[] = [];
         snapshot.forEach((doc) => {
           const data = doc.data() as AppUser;
-          const userCount = isTefillin ? (data.clicks || 0) : (data.candleClicks || 0);
+          const userCount = isTefillin ? (data.clicks || 0) : isOther ? (data.otherClicks || 0) : (data.candleClicks || 0);
           
           if (data.status === 'approved' && userCount > 0) {
             newUsers.push({ ...data, uid: doc.id });
@@ -42,8 +43,8 @@ export default function Leaderboard() {
         
         // Sort client side based on campaign
         newUsers.sort((a, b) => {
-          const aCount = isTefillin ? (a.clicks || 0) : (a.candleClicks || 0);
-          const bCount = isTefillin ? (b.clicks || 0) : (b.candleClicks || 0);
+          const aCount = isTefillin ? (a.clicks || 0) : isOther ? (a.otherClicks || 0) : (a.candleClicks || 0);
+          const bCount = isTefillin ? (b.clicks || 0) : isOther ? (b.otherClicks || 0) : (b.candleClicks || 0);
           return bCount - aCount;
         });
         
@@ -55,14 +56,14 @@ export default function Leaderboard() {
     );
 
     return () => unsubscribe();
-  }, [campaign, isTefillin]);
+  }, [campaign, isTefillin, isOther]);
 
   const handleUpdateClicks = async (uid: string, amount: number, currentClicks: number) => {
     if (currentClicks + amount < 0) return;
     try {
       if (amount < 0) {
         // If decrementing, delete the most recent click document without needing a composite index
-        const targetCollection = isTefillin ? 'clicks' : 'candle_clicks';
+        const targetCollection = isTefillin ? 'clicks' : isOther ? 'other_clicks' : 'candle_clicks';
         const q = query(
           collection(db, targetCollection),
           where('uid', '==', uid)
@@ -81,7 +82,7 @@ export default function Leaderboard() {
         await Promise.all(deletePromises);
       }
 
-      const updateField = isTefillin ? 'clicks' : 'candleClicks';
+      const updateField = isTefillin ? 'clicks' : isOther ? 'otherClicks' : 'candleClicks';
       await updateDoc(doc(db, 'users', uid), {
         [updateField]: increment(amount)
       });
@@ -109,15 +110,24 @@ export default function Leaderboard() {
       
       <div className="divide-y divide-slate-100">
         {users.map((user, index) => {
-          const userCount = isTefillin ? (user.clicks || 0) : (user.candleClicks || 0);
+          const userCount = isTefillin ? (user.clicks || 0) : isOther ? (user.otherClicks || 0) : (user.candleClicks || 0);
           return (
             <div key={user.uid} className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
               <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-500 relative">
-                  {index === 0 && <Medal className="absolute -top-2 -right-2 text-amber-400" size={20} fill="currentColor" />}
-                  {index === 1 && <Medal className="absolute -top-2 -right-2 text-slate-400" size={20} fill="currentColor" />}
-                  {index === 2 && <Medal className="absolute -top-2 -right-2 text-amber-700" size={20} fill="currentColor" />}
-                  {index + 1}
+                <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-500 relative shrink-0">
+                  {index === 0 && <Medal className="absolute -top-2 -right-2 text-amber-400 z-10" size={20} fill="currentColor" />}
+                  {index === 1 && <Medal className="absolute -top-2 -right-2 text-slate-400 z-10" size={20} fill="currentColor" />}
+                  {index === 2 && <Medal className="absolute -top-2 -right-2 text-amber-700 z-10" size={20} fill="currentColor" />}
+                  {user.photoURL ? (
+                    <img src={user.photoURL} alt={user.name} className="w-full h-full rounded-full object-cover" />
+                  ) : (
+                    <span>{index + 1}</span>
+                  )}
+                  {user.photoURL && (
+                    <div className="absolute -bottom-1 -left-1 bg-white text-[10px] w-5 h-5 rounded-full flex items-center justify-center font-bold text-slate-500 shadow-sm border border-slate-100">
+                      {index + 1}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <div className="font-bold text-slate-900">{user.name}</div>
@@ -125,7 +135,7 @@ export default function Leaderboard() {
                 </div>
               </div>
               <div className="flex items-center gap-4">
-                <div className={`text-xl font-black px-4 py-1 rounded-full ${isTefillin ? 'text-blue-600 bg-blue-50' : 'text-amber-600 bg-amber-50'}`}>
+                <div className={`text-xl font-black px-4 py-1 rounded-full ${isTefillin ? 'text-blue-600 bg-blue-50' : isOther ? 'text-emerald-600 bg-emerald-50' : 'text-amber-600 bg-amber-50'}`}>
                   {userCount}
                 </div>
                 {isAdmin && (

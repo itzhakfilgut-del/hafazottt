@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useCampaign } from '../contexts/CampaignContext';
-import { auth } from '../lib/firebase';
-import { LogOut, Map as MapIcon, Trophy, MousePointerClick, ShieldAlert, Download, Navigation, Settings, X, MessageCircle } from 'lucide-react';
+import { auth, db } from '../lib/firebase';
+import { doc, onSnapshot, collection, query, orderBy, limit } from 'firebase/firestore';
+import { LogOut, Map as MapIcon, Trophy, MousePointerClick, ShieldAlert, Navigation, Settings, X, MessageCircle } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { APP_TEXTS as FALLBACK_TEXTS } from '../constants';
 import Clicker from '../components/Clicker';
@@ -12,6 +13,8 @@ import Leaderboard from '../components/Leaderboard';
 import AdminPanel from '../components/AdminPanel';
 import MyClicks from '../components/MyClicks';
 import ChatPanel from '../components/ChatPanel';
+
+import AvatarPicker from '../components/AvatarPicker';
 
 type Tab = 'clicker' | 'map' | 'myclicks' | 'leaderboard' | 'admin';
 
@@ -22,34 +25,46 @@ export default function Dashboard() {
   const texts = settings?.texts || FALLBACK_TEXTS;
   const theme = settings?.theme;
   const [activeTab, setActiveTab] = useState<Tab>('clicker');
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showUserSettings, setShowUserSettings] = useState(false);
   const [showChat, setShowChat] = useState(false);
+  const [unreadPrivateCount, setUnreadPrivateCount] = useState(0);
+  const [hasGlobalUnread, setHasGlobalUnread] = useState(false);
 
   useEffect(() => {
-    const handler = (e: Event) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-    };
+    if (!appUser) return;
     
-    window.addEventListener('beforeinstallprompt', handler);
-    
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handler);
-    };
-  }, []);
-
-  const handleInstall = async () => {
-    if (deferredPrompt) {
-      deferredPrompt.prompt();
-      const { outcome } = await deferredPrompt.userChoice;
-      if (outcome === 'accepted') {
-        setDeferredPrompt(null);
+    const unsubMeta = onSnapshot(doc(db, 'user_chats', appUser.uid), (docSnap) => {
+      let count = 0;
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.unreadPrivate) {
+          Object.values(data.unreadPrivate).forEach(isUnread => {
+            if (isUnread) count++;
+          });
+        }
       }
-    } else {
-      alert(texts.app.installInstructions);
-    }
-  };
+      setUnreadPrivateCount(count);
+    });
+
+    const qGlobal = query(collection(db, 'chat_messages'), orderBy('timestamp', 'desc'), limit(1));
+    const unsubGlobal = onSnapshot(qGlobal, (snapshot) => {
+      let isUnread = false;
+      snapshot.forEach(msgDoc => {
+        const data = msgDoc.data();
+        if (data.uid !== appUser.uid && (!data.readBy || !data.readBy.includes(appUser.uid))) {
+          isUnread = true;
+        }
+      });
+      setHasGlobalUnread(isUnread);
+    });
+
+    return () => {
+      unsubMeta();
+      unsubGlobal();
+    };
+  }, [appUser]);
+
+  const hasUnreadChats = unreadPrivateCount > 0 || hasGlobalUnread;
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: theme?.backgroundColor }} dir="rtl">
@@ -67,13 +82,6 @@ export default function Dashboard() {
             <div>
               <h1 className="font-bold text-slate-900 leading-tight flex items-center gap-2">
                 {texts.app.name}
-                <button
-                  onClick={() => setShowChat(true)}
-                  className="bg-primary/10 text-primary p-1.5 rounded-full hover:bg-primary/20 transition-colors"
-                  title="צ'אט"
-                >
-                  <MessageCircle size={16} />
-                </button>
               </h1>
               <p className="text-xs text-slate-500">{texts.app.hello}, {appUser?.name}</p>
             </div>
@@ -100,24 +108,42 @@ export default function Dashboard() {
               >
                 נרות שבת
               </button>
+              <button
+                onClick={() => setCampaign('other')}
+                className={cn(
+                  "px-3 py-1.5 text-sm font-medium rounded-md transition-all duration-200",
+                  campaign === 'other' ? "bg-white text-emerald-600 shadow-sm" : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
+                )}
+              >
+                אחר
+              </button>
             </div>
           
             <div className="flex items-center gap-2">
               <button
-                onClick={handleInstall}
-                className="flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-2 bg-blue-50 text-primary hover:bg-blue-100 rounded-lg transition-colors text-sm font-medium"
-                title={texts.app.installApp}
-              >
-                <Download size={18} />
-                <span className="hidden sm:inline">{texts.app.installApp}</span>
-              </button>
-              <button
                 onClick={() => setShowUserSettings(true)}
-                className="flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-2 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg transition-colors text-sm font-medium"
+                className="flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg transition-colors text-sm font-medium"
                 title="הגדרות אישיות"
               >
-                <Settings size={18} />
+                {appUser?.photoURL ? (
+                  <img src={appUser.photoURL} alt="Avatar" className="w-6 h-6 rounded-full object-cover shadow-sm" />
+                ) : (
+                  <Settings size={18} />
+                )}
                 <span className="hidden sm:inline">הגדרות אישיות</span>
+              </button>
+              <button
+                onClick={() => setShowChat(true)}
+                className="flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-2 bg-slate-100 text-slate-700 hover:bg-primary/10 hover:text-primary rounded-lg transition-colors text-sm font-medium relative"
+                title="צ'אט"
+              >
+                <div className="relative">
+                  <MessageCircle size={18} />
+                  {hasUnreadChats && (
+                    <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 border-2 border-slate-100 rounded-full"></span>
+                  )}
+                </div>
+                <span className="hidden sm:inline">צ'אט</span>
               </button>
               <button
                 onClick={() => auth.signOut()}
@@ -276,16 +302,17 @@ export default function Dashboard() {
             </div>
             
             <div className="p-6">
-              <div className="space-y-4">
+              <div className="space-y-6">
+                <AvatarPicker />
                 <div className="space-y-3">
                   <label className="block text-sm font-medium text-slate-700">בחירת מסך ברירת מחדל:</label>
                   <p className="text-xs text-slate-500 -mt-2 mb-3">מסך זה יוצג אוטומטית בכל כניסה לאפליקציה.</p>
                   
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-3 gap-2">
                     <button
                       onClick={() => setDefaultCampaign('tefillin')}
                       className={cn(
-                        "py-3 px-4 rounded-xl border-2 font-medium transition-all text-sm",
+                        "py-3 px-2 rounded-xl border-2 font-medium transition-all text-xs sm:text-sm",
                         (appUser?.defaultCampaign === 'tefillin' || (!appUser?.defaultCampaign && settings?.defaultCampaign === 'tefillin'))
                           ? "border-primary bg-primary text-white" 
                           : "border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
@@ -296,13 +323,24 @@ export default function Dashboard() {
                     <button
                       onClick={() => setDefaultCampaign('candles')}
                       className={cn(
-                        "py-3 px-4 rounded-xl border-2 font-medium transition-all text-sm",
+                        "py-3 px-2 rounded-xl border-2 font-medium transition-all text-xs sm:text-sm",
                         (appUser?.defaultCampaign === 'candles' || (!appUser?.defaultCampaign && settings?.defaultCampaign === 'candles'))
                           ? "border-orange-500 bg-orange-500 text-white" 
                           : "border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
                       )}
                     >
                       נרות שבת
+                    </button>
+                    <button
+                      onClick={() => setDefaultCampaign('other')}
+                      className={cn(
+                        "py-3 px-2 rounded-xl border-2 font-medium transition-all text-xs sm:text-sm",
+                        (appUser?.defaultCampaign === 'other')
+                          ? "border-emerald-500 bg-emerald-500 text-white" 
+                          : "border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                      )}
+                    >
+                      אחר
                     </button>
                   </div>
                 </div>

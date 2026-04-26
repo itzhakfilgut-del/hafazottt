@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { collection, query, orderBy, limit, onSnapshot, addDoc, updateDoc, doc, where, or } from 'firebase/firestore';
+import { collection, query, orderBy, limit, onSnapshot, addDoc, updateDoc, doc, setDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth, AppUser } from '../contexts/AuthContext';
 import { X, Send, MessageCircle, Reply, Check, CheckCheck, Users, Search, ArrowRight } from 'lucide-react';
@@ -36,9 +36,34 @@ export default function ChatPanel({ onClose }: ChatPanelProps) {
   const [replyToMessage, setReplyToMessage] = useState<ChatMessage | null>(null);
   const [activeTab, setActiveTab] = useState<ChatTab>('global');
   const [selectedUser, setSelectedUser] = useState<AppUser | null>(null);
+  const [unreadPrivateMap, setUnreadPrivateMap] = useState<Record<string, boolean>>({});
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const privateMessagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Unread Map
+  useEffect(() => {
+    if (!appUser) return;
+    const unsub = onSnapshot(doc(db, 'user_chats', appUser.uid), (docSnap) => {
+      if (docSnap.exists() && docSnap.data().unreadPrivate) {
+        setUnreadPrivateMap(docSnap.data().unreadPrivate);
+      } else {
+        setUnreadPrivateMap({});
+      }
+    });
+    return () => unsub();
+  }, [appUser]);
+
+  // Handle Mark as Read for Private Chat
+  useEffect(() => {
+    if (activeTab === 'private' && selectedUser && appUser && unreadPrivateMap[selectedUser.uid]) {
+        setDoc(doc(db, 'user_chats', appUser.uid), {
+          unreadPrivate: {
+            [selectedUser.uid]: false
+          }
+        }, { merge: true }).catch(console.error);
+    }
+  }, [activeTab, selectedUser, appUser, privateMessages.length, unreadPrivateMap]);
 
   // Fetch Global Messages
   useEffect(() => {
@@ -160,6 +185,12 @@ export default function ChatPanel({ onClose }: ChatPanelProps) {
       } else if (selectedUser) {
         const channelId = [appUser.uid, selectedUser.uid].sort().join('_');
         await addDoc(collection(db, `private_chats/${channelId}/messages`), messageData);
+        // Mark as unread for the recipient
+        await setDoc(doc(db, 'user_chats', selectedUser.uid), {
+          unreadPrivate: {
+            [appUser.uid]: true
+          }
+        }, { merge: true });
       }
       
       setNewMessage('');
@@ -201,20 +232,37 @@ export default function ChatPanel({ onClose }: ChatPanelProps) {
       const isRead = msg.readBy && msg.readBy.length > 0;
 
       return (
-        <div key={msg.id} className={cn("flex flex-col group", isMe ? "items-start" : "items-end")}>
+        <div key={msg.id} className={cn("flex flex-col group", isMe ? "items-start" : "items-end", isConsecutive ? "mt-1" : "mt-4")}>
           {!isMe && !isConsecutive && (
-            <span className="text-xs text-slate-500 mb-1 px-1">{msg.name}</span>
+            <span className="text-xs text-slate-500 mb-1 px-10">{msg.name}</span>
           )}
           
-          <div className={cn("flex flex-col relative", isMe ? "items-start" : "items-end")}>
-            <div className={cn("flex items-center gap-2", isMe ? "flex-row-reverse" : "flex-row")}>
+          <div className={cn("flex flex-col relative w-full", isMe ? "items-start" : "items-end")}>
+            <div className={cn("flex items-end gap-2", isMe ? "flex-row-reverse" : "flex-row")}>
               
+              {!isMe && (
+                <div className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center -mb-1 relative z-10">
+                  {!isConsecutive ? (
+                    users.find(u => u.uid === msg.uid)?.photoURL ? (
+                      <img src={users.find(u => u.uid === msg.uid)?.photoURL} alt={msg.name} className="w-8 h-8 rounded-full object-cover shadow-sm border border-white" />
+                    ) : (
+                      <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-500 text-xs font-bold shadow-sm border border-white">
+                        {msg.name.charAt(0)}
+                      </div>
+                    )
+                  ) : (
+                    <div className="w-8 h-8" />
+                  )}
+                </div>
+              )}
+
               <div 
                 className={cn(
-                  "px-4 py-2 max-w-[240px] sm:max-w-xs break-words shadow-sm relative group",
+                  "px-4 py-2 max-w-[220px] sm:max-w-xs break-words shadow-sm relative group",
                   isMe 
                     ? "bg-primary text-white rounded-2xl rounded-tr-sm" 
-                    : "bg-white border border-slate-200 text-slate-800 rounded-2xl rounded-tl-sm",
+                    : "bg-white border text-slate-800 rounded-2xl rounded-tl-sm",
+                  !isMe && "border-slate-200",
                   msg.replyTo ? "mt-6" : ""
                 )}
               >
@@ -307,11 +355,14 @@ export default function ChatPanel({ onClose }: ChatPanelProps) {
             <button 
               onClick={() => setActiveTab('users')}
               className={cn(
-                "flex-1 py-2 text-sm font-medium border-b-2 transition-colors",
+                "flex-1 py-2 text-sm font-medium border-b-2 transition-colors relative flex items-center justify-center gap-1.5",
                 activeTab === 'users' ? "border-primary text-primary" : "border-transparent text-slate-500 hover:text-slate-700"
               )}
             >
               הודעה פרטית
+              {Object.values(unreadPrivateMap).some(Boolean) && (
+                <span className="w-2 h-2 bg-red-500 rounded-full"></span>
+              )}
             </button>
           </div>
         )}
@@ -353,26 +404,35 @@ export default function ChatPanel({ onClose }: ChatPanelProps) {
                   // Currently we don't have a reliable 'online' status, so we'll just show the user.
                   // We can add a green dot if their role is admin or they have recent activity in a real app.
                   const isRecentlyActive = user.clicks > 0; // rough simulation
+                  const hasUnread = unreadPrivateMap[user.uid];
                   
                   return (
                     <button
                       key={user.uid}
                       onClick={() => startPrivateChat(user)}
-                      className="w-full flex items-center gap-3 p-3 bg-white border border-slate-100 hover:border-primary/30 hover:bg-primary/5 rounded-xl transition-all text-right"
+                      className={cn("w-full flex items-center gap-3 p-3 bg-white border hover:border-primary/30 rounded-xl transition-all text-right", hasUnread ? "border-red-300 bg-red-50/30" : "border-slate-100 hover:bg-primary/5")}
                     >
                       <div className="relative">
                         <div className="w-10 h-10 bg-slate-100 text-slate-600 rounded-full flex items-center justify-center font-bold">
                           {user.name.charAt(0)}
                         </div>
-                        {isRecentlyActive && (
+                        {isRecentlyActive && !hasUnread && (
                           <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></div>
+                        )}
+                        {hasUnread && (
+                          <div className="absolute bottom-0 right-0 w-3 h-3 bg-red-500 border-2 border-white rounded-full"></div>
                         )}
                       </div>
                       <div className="flex-1 overflow-hidden">
-                        <div className="font-medium text-slate-900 truncate">{user.name}</div>
+                        <div className={cn("font-medium truncate", hasUnread ? "text-red-600 font-bold" : "text-slate-900")}>{user.name}</div>
                         <div className="text-xs text-slate-500 truncate">{user.yeshiva}</div>
                       </div>
-                      <MessageCircle size={16} className="text-slate-300" />
+                      {hasUnread && (
+                        <div className="w-2.5 h-2.5 bg-red-500 rounded-full shrink-0"></div>
+                      )}
+                      {!hasUnread && (
+                        <MessageCircle size={16} className="text-slate-300" />
+                      )}
                     </button>
                   );
                 })

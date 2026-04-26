@@ -14,6 +14,7 @@ interface ClickRecord {
   yeshiva: string;
   location: { lat: number; lng: number };
   timestamp: string;
+  note?: string;
 }
 
 export default function MyClicks() {
@@ -26,11 +27,12 @@ export default function MyClicks() {
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
   const isTefillin = campaign === 'tefillin';
+  const isOther = campaign === 'other';
 
   useEffect(() => {
     if (!appUser) return;
 
-    const targetCollection = isTefillin ? 'clicks' : 'candle_clicks';
+    const targetCollection = isTefillin ? 'clicks' : isOther ? 'other_clicks' : 'candle_clicks';
 
     // Fetch clicks specific to the logged-in user without orderBy to avoid needing a composite index
     const q = query(
@@ -51,7 +53,8 @@ export default function MyClicks() {
               name: data.name,
               yeshiva: data.yeshiva,
               location: data.location,
-              timestamp: data.timestamp || new Date().toISOString()
+              timestamp: data.timestamp || new Date().toISOString(),
+              note: data.note
             });
           }
         });
@@ -72,12 +75,12 @@ export default function MyClicks() {
   const handleDeleteClick = async (record: ClickRecord) => {
     setIsDeleting(record.id);
     try {
-      const targetCollection = isTefillin ? 'clicks' : 'candle_clicks';
+      const targetCollection = isTefillin ? 'clicks' : isOther ? 'other_clicks' : 'candle_clicks';
       // 1. Delete the click record itself
       await deleteDoc(doc(db, targetCollection, record.id));
       
       // 2. Decrement the user's total clicks
-      const updateField = isTefillin ? 'clicks' : 'candleClicks';
+      const updateField = isTefillin ? 'clicks' : isOther ? 'otherClicks' : 'candleClicks';
       await updateDoc(doc(db, 'users', record.uid), {
         [updateField]: increment(-1)
       });
@@ -103,7 +106,7 @@ export default function MyClicks() {
         {myClicks.map((record) => (
           <div key={record.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between hover:bg-slate-50 transition-colors gap-4">
             <div className="flex items-start gap-3">
-              <div className={`mt-1 w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${isTefillin ? 'bg-blue-50 text-blue-600' : 'bg-amber-50 text-amber-600'}`}>
+              <div className={`mt-1 w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${isTefillin ? 'bg-blue-50 text-blue-600' : isOther ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
                 <MapPin size={20} />
               </div>
               <div className="text-right">
@@ -111,11 +114,16 @@ export default function MyClicks() {
                   <Clock size={14} className="text-slate-400" />
                   <span dir="ltr">{new Date(record.timestamp).toLocaleString('he-IL')}</span>
                 </div>
+                {record.note && (
+                  <div className="text-emerald-600 text-sm font-medium mt-1">
+                    {record.note}
+                  </div>
+                )}
                 <a 
                   href={getGoogleMapsUrl(record.location.lat, record.location.lng)}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`text-sm hover:underline mt-1 inline-block ${isTefillin ? 'text-blue-500 hover:text-blue-700' : 'text-amber-500 hover:text-amber-700'}`}
+                  className={`text-sm hover:underline mt-1 inline-block ${isTefillin ? 'text-blue-500 hover:text-blue-700' : isOther ? 'text-emerald-500 hover:text-emerald-700' : 'text-amber-500 hover:text-amber-700'}`}
                 >
                   הצג במפה ({record.location.lat.toFixed(4)}, {record.location.lng.toFixed(4)})
                 </a>

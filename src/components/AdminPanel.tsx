@@ -54,7 +54,7 @@ export default function AdminPanel() {
   const [users, setUsers] = useState<AppUser[]>([]);
   const [yeshivas, setYeshivas] = useState<Yeshiva[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState({ name: '', yeshiva: '', clicks: 0, candleClicks: 0 });
+  const [editForm, setEditForm] = useState({ name: '', yeshiva: '', clicks: 0, candleClicks: 0, otherClicks: 0 });
   const [newYeshivaName, setNewYeshivaName] = useState('');
   
   const [activeAdminTab, setActiveAdminTab] = useState<'users' | 'yeshivas' | 'settings'>('users');
@@ -225,7 +225,7 @@ export default function AdminPanel() {
 
   const startEdit = (user: AppUser) => {
     setEditingId(user.uid);
-    setEditForm({ name: user.name, yeshiva: user.yeshiva, clicks: user.clicks || 0, candleClicks: user.candleClicks || 0 });
+    setEditForm({ name: user.name, yeshiva: user.yeshiva, clicks: user.clicks || 0, candleClicks: user.candleClicks || 0, otherClicks: user.otherClicks || 0 });
   };
 
   const saveEdit = async (uid: string) => {
@@ -238,11 +238,15 @@ export default function AdminPanel() {
     const newCandleClicks = Number(editForm.candleClicks);
     const oldCandleClicks = user.candleClicks || 0;
 
+    const newOtherClicks = Number(editForm.otherClicks);
+    const oldOtherClicks = user.otherClicks || 0;
+
     const updateData: any = {
       name: editForm.name,
       yeshiva: editForm.yeshiva,
       clicks: newClicks,
-      candleClicks: newCandleClicks
+      candleClicks: newCandleClicks,
+      otherClicks: newOtherClicks
     };
 
     // If tefillin clicks are reduced, delete the most recent click documents
@@ -294,8 +298,32 @@ export default function AdminPanel() {
       }
     }
 
+    // If other clicks are reduced, delete the most recent click documents
+    if (newOtherClicks < oldOtherClicks) {
+      try {
+        const diff = oldOtherClicks - newOtherClicks;
+        const q = query(
+          collection(db, 'other_clicks'),
+          where('uid', '==', uid)
+        );
+        const snapshot = await getDocs(q);
+        
+        const sortedDocs = snapshot.docs.sort((a, b) => {
+          const timeA = new Date(a.data().timestamp || 0).getTime();
+          const timeB = new Date(b.data().timestamp || 0).getTime();
+          return timeB - timeA;
+        });
+        
+        const docsToDelete = sortedDocs.slice(0, diff);
+        const deletePromises = docsToDelete.map(doc => deleteDoc(doc.ref));
+        await Promise.all(deletePromises);
+      } catch (error) {
+        console.error("Error deleting old other clicks manually:", error);
+      }
+    }
+
     // If clicks are reset to 0, also clear lastLocation
-    if (newClicks === 0 && newCandleClicks === 0) {
+    if (newClicks === 0 && newCandleClicks === 0 && newOtherClicks === 0) {
       updateData.lastLocation = { lat: 0, lng: 0 };
     }
 
@@ -412,6 +440,7 @@ export default function AdminPanel() {
                   <th className="p-4 font-medium">{texts.admin.columns.yeshiva}</th>
                   <th className="p-4 font-medium" title="תפילין">תפילין</th>
                   <th className="p-4 font-medium" title="נרות שבת">נרות שבת</th>
+                  <th className="p-4 font-medium" title="אחר">אחר</th>
                   <th className="p-4 font-medium">{texts.admin.columns.status}</th>
                   <th className="p-4 font-medium">תפקיד</th>
                   <th className="p-4 font-medium">{texts.admin.columns.actions}</th>
@@ -478,6 +507,19 @@ export default function AdminPanel() {
                       )}
                     </td>
                     <td className="p-4">
+                      {editingId === user.uid ? (
+                        <input
+                          type="number"
+                          value={editForm.otherClicks}
+                          onChange={(e) => setEditForm({ ...editForm, otherClicks: parseInt(e.target.value) || 0 })}
+                          className="border rounded px-2 py-1 w-16 text-center"
+                          title="אחר"
+                        />
+                      ) : (
+                        <span className="font-bold text-emerald-600">{user.otherClicks || 0}</span>
+                      )}
+                    </td>
+                    <td className="p-4">
                       {user.status === 'pending' && (
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
                           {texts.admin.status.pending}
@@ -536,7 +578,7 @@ export default function AdminPanel() {
                 ))}
                 {users.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="p-8 text-center text-slate-500">
+                    <td colSpan={8} className="p-8 text-center text-slate-500">
                       אין משתמשים במערכת
                     </td>
                   </tr>

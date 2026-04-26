@@ -10,8 +10,8 @@ import { useCampaign } from '../contexts/CampaignContext';
 import { APP_TEXTS as FALLBACK_TEXTS } from '../constants';
 import { Trash2 } from 'lucide-react';
 
-const getColorForYeshiva = (yeshivaName: string, isCandles: boolean = false) => {
-  if (!yeshivaName) return isCandles ? '#f59e0b' : '#3b82f6'; 
+const getColorForYeshiva = (yeshivaName: string, campaign: string = 'tefillin') => {
+  if (!yeshivaName) return campaign === 'candles' ? '#f59e0b' : campaign === 'other' ? '#10b981' : '#3b82f6'; 
   
   // Hash function for other yeshivas
   let hash = 0;
@@ -19,9 +19,14 @@ const getColorForYeshiva = (yeshivaName: string, isCandles: boolean = false) => 
     hash = yeshivaName.charCodeAt(i) + ((hash << 5) - hash);
   }
   
-  if (isCandles) {
+  if (campaign === 'candles') {
     const fireColors = ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#ea580c', '#c2410c'];
     return fireColors[Math.abs(hash) % fireColors.length];
+  }
+
+  if (campaign === 'other') {
+    const natureColors = ['#10b981', '#059669', '#047857', '#34d399', '#6ee7b7'];
+    return natureColors[Math.abs(hash) % natureColors.length];
   }
   
   const defaultColors = [
@@ -38,11 +43,12 @@ interface ClickRecord {
   yeshiva: string;
   location: { lat: number; lng: number };
   timestamp: string;
+  note?: string;
 }
 
-const createCustomIcon = (name: string, yeshiva: string, isRecent: boolean = false, isCandles: boolean = false) => {
+const createCustomIcon = (name: string, yeshiva: string, isRecent: boolean = false, campaign: string = 'tefillin') => {
   const initial = name ? name.charAt(0).toUpperCase() : '?';
-  const borderColor = getColorForYeshiva(yeshiva || '', isCandles);
+  const borderColor = getColorForYeshiva(yeshiva || '', campaign);
   
   const html = `
     <div class="animate-marker-pop" style="display: flex; flex-direction: column; align-items: center; justify-content: center; margin-top: -10px; --marker-color: ${borderColor}99;">
@@ -71,10 +77,11 @@ export default function MapView() {
   const theme = settings?.theme;
 
   const isTefillin = campaign === 'tefillin';
+  const isOther = campaign === 'other';
 
   useEffect(() => {
     // Fetch clicks based on campaign
-    const targetCollection = isTefillin ? 'clicks' : 'candle_clicks';
+    const targetCollection = isTefillin ? 'clicks' : isOther ? 'other_clicks' : 'candle_clicks';
     const q = query(collection(db, targetCollection));
     
     const unsubscribe = onSnapshot(
@@ -90,7 +97,8 @@ export default function MapView() {
               name: data.name,
               yeshiva: data.yeshiva,
               location: data.location,
-              timestamp: data.timestamp
+              timestamp: data.timestamp,
+              note: data.note
             });
           }
         });
@@ -102,16 +110,16 @@ export default function MapView() {
     );
 
     return () => unsubscribe();
-  }, [campaign, isTefillin]);
+  }, [campaign, isTefillin, isOther]);
 
   const handleDeleteClick = async (record: ClickRecord) => {
     try {
-      const targetCollection = isTefillin ? 'clicks' : 'candle_clicks';
+      const targetCollection = isTefillin ? 'clicks' : isOther ? 'other_clicks' : 'candle_clicks';
       // 1. Delete the click record itself
       await deleteDoc(doc(db, targetCollection, record.id));
       
       // 2. Decrement the user's total clicks
-      const updateField = isTefillin ? 'clicks' : 'candleClicks';
+      const updateField = isTefillin ? 'clicks' : isOther ? 'otherClicks' : 'candleClicks';
       await updateDoc(doc(db, 'users', record.uid), {
         [updateField]: increment(-1)
       });
@@ -134,12 +142,13 @@ export default function MapView() {
             <Marker 
               key={record.id} 
               position={[record.location.lat, record.location.lng]}
-              icon={createCustomIcon(record.name, record.yeshiva, isRecent, !isTefillin)}
+              icon={createCustomIcon(record.name, record.yeshiva, isRecent, campaign)}
             >
               <Popup>
                 <div className="text-right" dir="rtl">
                   <strong className="block text-lg">{record.name}</strong>
                   <span className="block text-slate-600">{record.yeshiva}</span>
+                  {record.note && <span className="block text-emerald-600 font-medium text-sm mt-1 mb-1">{record.note}</span>}
                   <span className="block text-xs text-slate-400 mt-1" dir="ltr">
                     {new Date(record.timestamp).toLocaleString('he-IL')}
                   </span>

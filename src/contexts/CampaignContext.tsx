@@ -4,7 +4,7 @@ import { useAuth } from './AuthContext';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 
-type CampaignType = 'tefillin' | 'candles';
+type CampaignType = 'tefillin' | 'candles' | 'other';
 
 interface CampaignContextType {
   campaign: CampaignType;

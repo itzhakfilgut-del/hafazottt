@@ -12,8 +12,9 @@ export interface AppUser {
   role: 'user' | 'admin';
   clicks: number;
   candleClicks?: number;
+  otherClicks?: number;
   lastLocation?: { lat: number; lng: number };
-  defaultCampaign?: 'tefillin' | 'candles';
+  defaultCampaign?: 'tefillin' | 'candles' | 'other';
   gender?: 'boy' | 'girl';
   phone?: string;
 }
