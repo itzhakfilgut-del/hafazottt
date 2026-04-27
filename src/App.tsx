@@ -1,5 +1,5 @@
 import React from 'react';
-import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { HashRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import { CampaignProvider } from './contexts/CampaignContext';
@@ -14,6 +14,7 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { user, appUser, loading: authLoading, authError } = useAuth();
   const { settings, loading: settingsLoading } = useSettings();
   const [showError, setShowError] = React.useState(false);
+  const navigate = useNavigate();
 
   const texts = settings?.texts || FALLBACK_TEXTS;
 
@@ -57,9 +58,17 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
         )}
         <button 
           onClick={() => {
-            import('./lib/firebase').then(({ auth }) => auth.signOut());
+            navigate('/register');
           }} 
           className="px-6 py-2 bg-primary hover:bg-secondary text-white rounded-xl font-medium transition-colors"
+        >
+          השלמת פרופיל
+        </button>
+        <button 
+          onClick={() => {
+            import('./lib/firebase').then(({ auth }) => auth.signOut());
+          }} 
+          className="mt-4 px-6 py-2 text-slate-500 hover:text-slate-700 font-medium transition-colors"
         >
           {texts.auth.logoutAndRetry}
         </button>

@@ -7,6 +7,7 @@ import { UserPlus } from 'lucide-react';
 import { APP_TEXTS as FALLBACK_TEXTS } from '../constants';
 import { useSettings } from '../contexts/SettingsContext';
 import { useCampaign } from '../contexts/CampaignContext';
+import { useAuth } from '../contexts/AuthContext';
 
 interface Yeshiva {
   id: string;
@@ -14,6 +15,7 @@ interface Yeshiva {
 }
 
 export default function Register() {
+  const { user } = useAuth();
   const { settings } = useSettings();
   const { campaign } = useCampaign();
   const texts = settings?.texts || FALLBACK_TEXTS;
@@ -34,6 +36,12 @@ export default function Register() {
   // Decide yeshiva label based on gender first, then fallback to campaign generic
   const yeshivaLabel = gender === 'boy' ? 'ישיבה' : gender === 'girl' ? 'אולפנה' : (isTefillin ? texts.auth.yeshiva : 'אולפנה/מוסד');
   const yeshivaPlaceholder = gender === 'boy' ? 'בחר ישיבה' : gender === 'girl' ? 'בחר אולפנה' : (isTefillin ? texts.auth.selectYeshiva : 'בחר מוסד');
+
+  useEffect(() => {
+    if (user && user.email) {
+      setEmail(user.email);
+    }
+  }, [user]);
 
   useEffect(() => {
     const fetchInstitutions = async () => {
@@ -74,14 +82,20 @@ export default function Register() {
 
     try {
       console.log("מתחיל הרשמה...");
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
-      console.log("משתמש נוצר ב-Auth:", user.uid);
+      let activeUser = user;
+      
+      if (!activeUser) {
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        activeUser = userCredential.user;
+        console.log("משתמש נוצר ב-Auth:", activeUser.uid);
+      } else {
+        console.log("משתמש כבר מחובר, ממשיך ליצירת פרופיל:", activeUser.uid);
+      }
       
       try {
         // Add a timeout to the Firestore write to prevent infinite hanging
-        const writePromise = setDoc(doc(db, 'users', user.uid), {
-          email: user.email,
+        const writePromise = setDoc(doc(db, 'users', activeUser.uid), {
+          email: activeUser.email,
           name,
           yeshiva,
           gender,
@@ -103,7 +117,7 @@ export default function Register() {
         console.error("שגיאה בשמירה ל-Firestore:", firestoreError);
         // Even if Firestore fails, the auth user was created. 
         // We should show the error but maybe still redirect or let them know.
-        throw new Error(`המשתמש נוצר אך נתוניו לא נשמרו במסד הנתונים: ${firestoreError.message}`);
+        throw new Error(`שגיאה בשמירת נתוני הפרופיל: ${firestoreError.message}`);
       }
 
       navigate('/');
@@ -122,8 +136,8 @@ export default function Register() {
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-100 text-primary mb-4">
             <UserPlus size={32} />
           </div>
-          <h2 className="text-2xl font-bold text-slate-900">{texts.auth.registerTitle}</h2>
-          <p className="text-slate-500 mt-2">{texts.auth.registerSubtitle}</p>
+          <h2 className="text-2xl font-bold text-slate-900">{user ? 'השלמת הרשמה' : texts.auth.registerTitle}</h2>
+          <p className="text-slate-500 mt-2">{user ? 'אנא השלם את פרטי הפרופיל שלך' : texts.auth.registerSubtitle}</p>
         </div>
 
         {error && (
@@ -200,22 +214,26 @@ export default function Register() {
               type="email"
               required
               value={email}
+              disabled={!!user}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all"
+              className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all disabled:bg-slate-100 disabled:text-slate-500"
               dir="ltr"
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">{texts.auth.password}</label>
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all"
-              dir="ltr"
-            />
-          </div>
+          
+          {!user && (
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">{texts.auth.password}</label>
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all"
+                dir="ltr"
+              />
+            </div>
+          )}
           <button
             type="submit"
             disabled={loading}
