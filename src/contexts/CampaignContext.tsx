@@ -32,6 +32,17 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
     }
   }, [appUser?.defaultCampaign, settings?.defaultCampaign]);
 
+  // Handle forcing off 'tefillin' for girls
+  useEffect(() => {
+    if (appUser?.gender === 'girl' && campaign === 'tefillin') {
+      const fallback = appUser.defaultCampaign && appUser.defaultCampaign !== 'tefillin' 
+        ? appUser.defaultCampaign 
+        : 'candles';
+      setCampaignState(fallback);
+      localStorage.setItem('activeCampaign', fallback);
+    }
+  }, [appUser?.gender, campaign]);
+
   const setCampaign = (c: CampaignType) => {
     setCampaignState(c);
     localStorage.setItem('activeCampaign', c);

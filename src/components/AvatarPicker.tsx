@@ -3,8 +3,7 @@ import { updateDoc, doc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Camera, RefreshCw, Upload } from 'lucide-react';
-
-const AVATAR_STYLES = ['adventurer', 'avataaars', 'bottts', 'fun-emoji', 'micah'];
+import { getFallbackAvatar } from '../lib/utils';
 
 export default function AvatarPicker() {
   const { appUser } = useAuth();
@@ -13,26 +12,14 @@ export default function AvatarPicker() {
 
   if (!appUser) return null;
 
-  const currentAvatar = appUser.photoURL || `https://api.dicebear.com/7.x/initials/svg?seed=${appUser.name}&backgroundColor=0284c7`;
-
-  const handleGenerateRandom = async () => {
-    setIsUpdating(true);
-    try {
-      const style = AVATAR_STYLES[Math.floor(Math.random() * AVATAR_STYLES.length)];
-      const seed = Math.random().toString(36).substring(7);
-      const randomUrl = `https://api.dicebear.com/7.x/${style}/svg?seed=${seed}&backgroundColor=b6e3f4,c0aede,d1d4f9,ffd5dc,ffdfbf`;
-      
-      await updateDoc(doc(db, 'users', appUser.uid), {
-        photoURL: randomUrl
-      });
-    } catch (error) {
-      console.error("Error setting random avatar:", error);
-    } finally {
-      setIsUpdating(false);
-    }
-  };
+  // Use the stored photo if present and it isn't an old dicebear URL
+  const currentPhotoURL = appUser.photoURL || '';
+  const currentAvatar = currentPhotoURL.includes('dicebear.com') || !currentPhotoURL 
+    ? getFallbackAvatar(appUser.name) 
+    : currentPhotoURL;
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -102,18 +89,9 @@ export default function AvatarPicker() {
 
       <div className="flex gap-2 w-full mt-2">
         <button
-          onClick={handleGenerateRandom}
-          disabled={isUpdating}
-          className="flex-1 flex items-center justify-center gap-2 py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-        >
-          <RefreshCw size={16} />
-          <span>אקראי</span>
-        </button>
-        
-        <button
           onClick={() => fileInputRef.current?.click()}
           disabled={isUpdating}
-          className="flex-1 flex items-center justify-center gap-2 py-2 px-3 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+          className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
         >
           <Upload size={16} />
           <span>העלה תמונה</span>

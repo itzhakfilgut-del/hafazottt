@@ -15,6 +15,7 @@ import MyClicks from '../components/MyClicks';
 import ChatPanel from '../components/ChatPanel';
 
 import AvatarPicker from '../components/AvatarPicker';
+import { getFallbackAvatar } from '../lib/utils';
 
 type Tab = 'clicker' | 'map' | 'myclicks' | 'leaderboard' | 'admin';
 
@@ -46,21 +47,49 @@ export default function Dashboard() {
       setUnreadPrivateCount(count);
     });
 
-    const qGlobal = query(collection(db, 'chat_messages'), orderBy('timestamp', 'desc'), limit(1));
-    const unsubGlobal = onSnapshot(qGlobal, (snapshot) => {
+    let unsubs: (() => void)[] = [];
+    
+    const checkUnread = (snapshot: any) => {
       let isUnread = false;
-      snapshot.forEach(msgDoc => {
+      snapshot.forEach((msgDoc: any) => {
         const data = msgDoc.data();
         if (data.uid !== appUser.uid && (!data.readBy || !data.readBy.includes(appUser.uid))) {
           isUnread = true;
         }
       });
-      setHasGlobalUnread(isUnread);
-    });
+      return isUnread;
+    };
+
+    if (appUser.role === 'admin') {
+      const qGlobalBoys = query(collection(db, 'chat_messages_boys'), orderBy('timestamp', 'desc'), limit(1));
+      const qGlobalGirls = query(collection(db, 'chat_messages_girls'), orderBy('timestamp', 'desc'), limit(1));
+      
+      let boysUnread = false;
+      let girlsUnread = false;
+
+      const updateGlobalUnread = () => setHasGlobalUnread(boysUnread || girlsUnread);
+
+      unsubs.push(onSnapshot(qGlobalBoys, (snapshot) => {
+        boysUnread = checkUnread(snapshot);
+        updateGlobalUnread();
+      }));
+
+      unsubs.push(onSnapshot(qGlobalGirls, (snapshot) => {
+        girlsUnread = checkUnread(snapshot);
+        updateGlobalUnread();
+      }));
+
+    } else {
+      const globalCol = appUser.gender === 'boy' ? 'chat_messages_boys' : 'chat_messages_girls';
+      const qGlobal = query(collection(db, globalCol), orderBy('timestamp', 'desc'), limit(1));
+      unsubs.push(onSnapshot(qGlobal, (snapshot) => {
+        setHasGlobalUnread(checkUnread(snapshot));
+      }));
+    }
 
     return () => {
       unsubMeta();
-      unsubGlobal();
+      unsubs.forEach(unsub => unsub());
     };
   }, [appUser]);
 
@@ -90,15 +119,17 @@ export default function Dashboard() {
           <div className="flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
             {/* Campaign Toggle */}
             <div className="flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200 select-none">
-              <button
-                onClick={() => setCampaign('tefillin')}
-                className={cn(
-                  "px-3 py-1.5 text-sm font-medium rounded-md transition-all duration-200",
-                  campaign === 'tefillin' ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
-                )}
-              >
-                תפילין
-              </button>
+              {appUser?.gender !== 'girl' && (
+                <button
+                  onClick={() => setCampaign('tefillin')}
+                  className={cn(
+                    "px-3 py-1.5 text-sm font-medium rounded-md transition-all duration-200",
+                    campaign === 'tefillin' ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
+                  )}
+                >
+                  תפילין
+                </button>
+              )}
               <button
                 onClick={() => setCampaign('candles')}
                 className={cn(
@@ -125,11 +156,11 @@ export default function Dashboard() {
                 className="flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg transition-colors text-sm font-medium"
                 title="הגדרות אישיות"
               >
-                {appUser?.photoURL ? (
-                  <img src={appUser.photoURL} alt="Avatar" className="w-6 h-6 rounded-full object-cover shadow-sm" />
-                ) : (
-                  <Settings size={18} />
-                )}
+                <img 
+                  src={(appUser?.photoURL && !appUser.photoURL.includes('dicebear.com')) ? appUser.photoURL : getFallbackAvatar(appUser?.name || '?')} 
+                  alt="Avatar" 
+                  className="w-6 h-6 rounded-full object-cover shadow-sm bg-slate-200" 
+                />
                 <span className="hidden sm:inline">הגדרות אישיות</span>
               </button>
               <button
@@ -308,18 +339,20 @@ export default function Dashboard() {
                   <label className="block text-sm font-medium text-slate-700">בחירת מסך ברירת מחדל:</label>
                   <p className="text-xs text-slate-500 -mt-2 mb-3">מסך זה יוצג אוטומטית בכל כניסה לאפליקציה.</p>
                   
-                  <div className="grid grid-cols-3 gap-2">
-                    <button
-                      onClick={() => setDefaultCampaign('tefillin')}
-                      className={cn(
-                        "py-3 px-2 rounded-xl border-2 font-medium transition-all text-xs sm:text-sm",
-                        (appUser?.defaultCampaign === 'tefillin' || (!appUser?.defaultCampaign && settings?.defaultCampaign === 'tefillin'))
-                          ? "border-primary bg-primary text-white" 
-                          : "border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
-                      )}
-                    >
-                      תפילין
-                    </button>
+                  <div className={cn("grid gap-2", appUser?.gender === 'girl' ? 'grid-cols-2' : 'grid-cols-3')}>
+                    {appUser?.gender !== 'girl' && (
+                      <button
+                        onClick={() => setDefaultCampaign('tefillin')}
+                        className={cn(
+                          "py-3 px-2 rounded-xl border-2 font-medium transition-all text-xs sm:text-sm",
+                          (appUser?.defaultCampaign === 'tefillin' || (!appUser?.defaultCampaign && settings?.defaultCampaign === 'tefillin'))
+                            ? "border-primary bg-primary text-white" 
+                            : "border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                        )}
+                      >
+                        תפילין
+                      </button>
+                    )}
                     <button
                       onClick={() => setDefaultCampaign('candles')}
                       className={cn(

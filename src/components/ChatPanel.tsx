@@ -3,7 +3,7 @@ import { collection, query, orderBy, limit, onSnapshot, addDoc, updateDoc, doc, 
 import { db } from '../lib/firebase';
 import { useAuth, AppUser } from '../contexts/AuthContext';
 import { X, Send, MessageCircle, Reply, Check, CheckCheck, Users, Search, ArrowRight } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, getFallbackAvatar } from '../lib/utils';
 
 interface ChatMessage {
   id: string;
@@ -23,7 +23,7 @@ interface ChatPanelProps {
   onClose: () => void;
 }
 
-type ChatTab = 'global' | 'users' | 'private';
+type ChatTab = 'global' | 'global_boys' | 'global_girls' | 'users' | 'private';
 
 export default function ChatPanel({ onClose }: ChatPanelProps) {
   const { appUser } = useAuth();
@@ -35,20 +35,29 @@ export default function ChatPanel({ onClose }: ChatPanelProps) {
   const [isSending, setIsSending] = useState(false);
   const [replyToMessage, setReplyToMessage] = useState<ChatMessage | null>(null);
   const [activeTab, setActiveTab] = useState<ChatTab>('global');
+
+  useEffect(() => {
+    if (appUser?.role === 'admin' && activeTab === 'global') {
+      setActiveTab('global_boys');
+    }
+  }, [appUser?.role, activeTab]);
   const [selectedUser, setSelectedUser] = useState<AppUser | null>(null);
   const [unreadPrivateMap, setUnreadPrivateMap] = useState<Record<string, boolean>>({});
+  const [lastMessagesMap, setLastMessagesMap] = useState<Record<string, {text: string, timestamp: string, senderId?: string}>>({});
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const privateMessagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Unread Map
+  // Unread Map and Last Messages
   useEffect(() => {
     if (!appUser) return;
     const unsub = onSnapshot(doc(db, 'user_chats', appUser.uid), (docSnap) => {
-      if (docSnap.exists() && docSnap.data().unreadPrivate) {
-        setUnreadPrivateMap(docSnap.data().unreadPrivate);
+      if (docSnap.exists()) {
+        setUnreadPrivateMap(docSnap.data().unreadPrivate || {});
+        setLastMessagesMap(docSnap.data().lastMessages || {});
       } else {
         setUnreadPrivateMap({});
+        setLastMessagesMap({});
       }
     });
     return () => unsub();
@@ -67,8 +76,20 @@ export default function ChatPanel({ onClose }: ChatPanelProps) {
 
   // Fetch Global Messages
   useEffect(() => {
+    let globalChatCol = '';
+    
+    if (appUser?.role === 'admin') {
+      if (activeTab === 'global_boys') globalChatCol = 'chat_messages_boys';
+      else if (activeTab === 'global_girls') globalChatCol = 'chat_messages_girls';
+      else return; // Don't fetch for other tabs
+    } else {
+      if (activeTab !== 'global') return;
+      if (!appUser?.gender) return;
+      globalChatCol = appUser.gender === 'boy' ? 'chat_messages_boys' : 'chat_messages_girls';
+    }
+
     const q = query(
-      collection(db, 'chat_messages'),
+      collection(db, globalChatCol),
       orderBy('timestamp', 'desc'),
       limit(50)
     );
@@ -81,7 +102,7 @@ export default function ChatPanel({ onClose }: ChatPanelProps) {
         
         // Mark as read if it's not our message and we haven't read it
         if (data.uid !== appUser?.uid && (!data.readBy || !data.readBy.includes(appUser?.uid))) {
-          if (activeTab === 'global') {
+          if (activeTab === 'global' || activeTab === 'global_boys' || activeTab === 'global_girls') {
              updateDoc(docSnap.ref, {
                readBy: [...(data.readBy || []), appUser?.uid]
              }).catch(console.error);
@@ -92,26 +113,33 @@ export default function ChatPanel({ onClose }: ChatPanelProps) {
     });
 
     return () => unsubscribe();
-  }, [appUser?.uid, activeTab]);
+  }, [appUser?.uid, appUser?.gender, appUser?.role, activeTab]);
   
   // Fetch Users List
   useEffect(() => {
-    if (activeTab !== 'users') return;
+    if (activeTab !== 'users' || !appUser) return;
     
     const usersQ = query(collection(db, 'users'));
     const unsubscribeUsers = onSnapshot(usersQ, (snapshot) => {
       const fetchedUsers: AppUser[] = [];
       snapshot.forEach(docSnap => {
         const u = { ...docSnap.data(), uid: docSnap.id } as AppUser;
-        if (u.uid !== appUser?.uid) {
-           fetchedUsers.push(u);
+        // Strict gender separation constraint + exclude self
+        if (u.uid !== appUser.uid) {
+           if (appUser.role === 'admin') {
+              fetchedUsers.push(u);
+           } else {
+              if (u.gender === appUser.gender || u.role === 'admin') {
+                 fetchedUsers.push(u);
+              }
+           }
         }
       });
       setUsers(fetchedUsers);
     });
     
     return () => unsubscribeUsers();
-  }, [activeTab, appUser?.uid]);
+  }, [activeTab, appUser?.uid, appUser?.gender, appUser?.role]);
 
   // Fetch Private Messages
   useEffect(() => {
@@ -145,19 +173,21 @@ export default function ChatPanel({ onClose }: ChatPanelProps) {
     return () => unsubscribe();
   }, [activeTab, selectedUser, appUser]);
 
+  const isGlobalTab = activeTab === 'global' || activeTab === 'global_boys' || activeTab === 'global_girls';
+
   useEffect(() => {
-    if (activeTab === 'global') {
+    if (isGlobalTab) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     } else if (activeTab === 'private') {
       privateMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages, privateMessages, activeTab]);
+  }, [messages, privateMessages, activeTab, isGlobalTab]);
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMessage.trim() || !appUser || isSending) return;
     
-    const isGlobal = activeTab === 'global';
+    const isGlobal = activeTab === 'global' || activeTab === 'global_boys' || activeTab === 'global_girls';
     
     // In global chat, check if user can reply
     if (isGlobal && canNotReply) return;
@@ -181,14 +211,38 @@ export default function ChatPanel({ onClose }: ChatPanelProps) {
       }
 
       if (isGlobal) {
-        await addDoc(collection(db, 'chat_messages'), messageData);
+        let globalChatCol = '';
+        if (appUser.role === 'admin') {
+          globalChatCol = activeTab === 'global_boys' ? 'chat_messages_boys' : 'chat_messages_girls';
+        } else {
+          globalChatCol = appUser.gender === 'boy' ? 'chat_messages_boys' : 'chat_messages_girls';
+        }
+        await addDoc(collection(db, globalChatCol), messageData);
       } else if (selectedUser) {
         const channelId = [appUser.uid, selectedUser.uid].sort().join('_');
         await addDoc(collection(db, `private_chats/${channelId}/messages`), messageData);
-        // Mark as unread for the recipient
+        // Mark as unread and update last message for recipient
         await setDoc(doc(db, 'user_chats', selectedUser.uid), {
           unreadPrivate: {
             [appUser.uid]: true
+          },
+          lastMessages: {
+            [appUser.uid]: {
+              text: newMessage.trim(),
+              timestamp: messageData.timestamp,
+              senderId: appUser.uid
+            }
+          }
+        }, { merge: true });
+        
+        // Update last message for sender
+        await setDoc(doc(db, 'user_chats', appUser.uid), {
+          lastMessages: {
+            [selectedUser.uid]: {
+              text: newMessage.trim(),
+              timestamp: messageData.timestamp,
+              senderId: appUser.uid
+            }
           }
         }, { merge: true });
       }
@@ -211,97 +265,172 @@ export default function ChatPanel({ onClose }: ChatPanelProps) {
   const lastMessage = messages[messages.length - 1];
   const canNotReply = activeTab === 'global' && appUser?.role !== 'admin' && lastMessage?.uid === appUser?.uid;
   
-  const filteredUsers = users.filter(u => u.name.toLowerCase().includes(searchQuery.toLowerCase()));
+  const filteredUsers = [...users]
+    .filter(u => u.name.toLowerCase().includes(searchQuery.toLowerCase()))
+    .sort((a, b) => {
+      const aUnread = unreadPrivateMap[a.uid] ? 1 : 0;
+      const bUnread = unreadPrivateMap[b.uid] ? 1 : 0;
+      if (aUnread !== bUnread) return bUnread - aUnread;
+      
+      const aLastMsg = lastMessagesMap[a.uid]?.timestamp || '';
+      const bLastMsg = lastMessagesMap[b.uid]?.timestamp || '';
+      if (aLastMsg !== bLastMsg) return bLastMsg.localeCompare(aLastMsg);
+      
+      return a.name.localeCompare(b.name);
+    });
+
+  const groupMessagesByDate = (msgList: ChatMessage[]) => {
+    const groups: { date: string; messages: ChatMessage[] }[] = [];
+    
+    msgList.forEach(msg => {
+      const dateObj = new Date(msg.timestamp);
+      // Create a nice date string (e.g., "היום", "אתמול", or full date)
+      const today = new Date();
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+      
+      let dateString = dateObj.toLocaleDateString('he-IL');
+      if (dateObj.toDateString() === today.toDateString()) {
+        dateString = 'היום';
+      } else if (dateObj.toDateString() === yesterday.toDateString()) {
+        dateString = 'אתמול';
+      }
+
+      const lastGroup = groups[groups.length - 1];
+      if (lastGroup && lastGroup.date === dateString) {
+        lastGroup.messages.push(msg);
+      } else {
+        groups.push({ date: dateString, messages: [msg] });
+      }
+    });
+    
+    return groups;
+  };
 
   const renderMessageList = (msgList: ChatMessage[], isGlobal: boolean) => {
     if (msgList.length === 0) {
       return (
-        <div className="text-center text-slate-400 mt-10">
-          אין הודעות בשיחה זו עדיין...
+        <div className="text-center bg-yellow-50 text-yellow-800/80 px-4 py-2 rounded-lg text-sm mx-auto my-6 max-w-fit shadow-sm">
+          שיחה זו מאובטחת בהצפנה מקצה לקצה.
         </div>
       );
     }
 
-    return msgList.map((msg, index) => {
-      const isMe = msg.uid === appUser?.uid;
-      // Group messages from same user if consecutive within 5 mins
-      const prevMsg = msgList[index - 1];
-      const isConsecutive = prevMsg && prevMsg.uid === msg.uid && !msg.replyTo &&
-        (new Date(msg.timestamp).getTime() - new Date(prevMsg.timestamp).getTime() < 5 * 60000);
+    const messageGroups = groupMessagesByDate(msgList);
 
-      const isRead = msg.readBy && msg.readBy.length > 0;
+    return messageGroups.map((group, groupIndex) => (
+      <div key={`group-${groupIndex}`} className="flex flex-col">
+        {/* Date Separator */}
+        <div className="flex justify-center my-4">
+          <span className="bg-white/80 shadow-sm text-slate-500 text-xs px-3 py-1 rounded-lg backdrop-blur-sm">
+            {group.date}
+          </span>
+        </div>
 
-      return (
-        <div key={msg.id} className={cn("flex flex-col group", isMe ? "items-start" : "items-end", isConsecutive ? "mt-1" : "mt-4")}>
-          {!isMe && !isConsecutive && (
-            <span className="text-xs text-slate-500 mb-1 px-10">{msg.name}</span>
-          )}
-          
-          <div className={cn("flex flex-col relative w-full", isMe ? "items-start" : "items-end")}>
-            <div className={cn("flex items-end gap-2", isMe ? "flex-row-reverse" : "flex-row")}>
-              
-              {!isMe && (
-                <div className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center -mb-1 relative z-10">
-                  {!isConsecutive ? (
-                    users.find(u => u.uid === msg.uid)?.photoURL ? (
-                      <img src={users.find(u => u.uid === msg.uid)?.photoURL} alt={msg.name} className="w-8 h-8 rounded-full object-cover shadow-sm border border-white" />
-                    ) : (
-                      <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-500 text-xs font-bold shadow-sm border border-white">
-                        {msg.name.charAt(0)}
-                      </div>
-                    )
-                  ) : (
-                    <div className="w-8 h-8" />
-                  )}
-                </div>
+        {group.messages.map((msg, index) => {
+          const isMe = msg.uid === appUser?.uid;
+          const prevMsg = group.messages[index - 1];
+          const isConsecutive = prevMsg && prevMsg.uid === msg.uid && !msg.replyTo &&
+            (new Date(msg.timestamp).getTime() - new Date(prevMsg.timestamp).getTime() < 5 * 60000);
+
+          const isRead = msg.readBy && msg.readBy.length > 0;
+          const showPointer = !isConsecutive;
+
+          return (
+            <div key={msg.id} className={cn("flex flex-col group", isMe ? "items-start" : "items-end", isConsecutive ? "mt-1" : "mt-3")}>
+              {/* Name for Global Chat */}
+              {!isMe && !isConsecutive && isGlobal && (
+                <span className="text-[11px] text-slate-500 mb-0.5 px-8 opacity-80">{msg.name}</span>
               )}
-
-              <div 
-                className={cn(
-                  "px-4 py-2 max-w-[220px] sm:max-w-xs break-words shadow-sm relative group",
-                  isMe 
-                    ? "bg-primary text-white rounded-2xl rounded-tr-sm" 
-                    : "bg-white border text-slate-800 rounded-2xl rounded-tl-sm",
-                  !isMe && "border-slate-200",
-                  msg.replyTo ? "mt-6" : ""
-                )}
-              >
-                {msg.replyTo && (
-                  <div className={cn(
-                    "absolute -top-6 text-xs truncate max-w-full px-2 py-1 rounded-t-lg opacity-80",
-                    isMe ? "bg-primary/80 right-0 left-4" : "bg-slate-200 left-0 right-4"
-                  )}>
-                    <span className="font-semibold block truncate">{msg.replyTo.name}</span>
-                    <span className="truncate block">{msg.replyTo.text}</span>
-                  </div>
-                )}
-                
-                {msg.text}
-                
-                <div className={cn(
-                  "text-[10px] mt-1 flex items-center justify-end gap-1 opacity-70",
-                  isMe ? "text-blue-100" : "text-slate-500"
-                )}>
-                  {new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                  {isMe && (
-                    isRead ? <CheckCheck size={12} className="text-white" /> : <Check size={12} />
+              
+              <div className={cn("flex flex-col relative w-full", isMe ? "items-start" : "items-end")}>
+                <div className={cn("flex items-end gap-1.5", isMe ? "flex-row-reverse" : "flex-row")}>
+                  
+                  {/* Sender Avatar - only in global chat */}
+                  {!isMe && isGlobal && (
+                    <div className="w-6 h-6 rounded-full flex shrink-0 items-center justify-center relative z-10 bottom-0.5">
+                      {!isConsecutive ? (
+                        <img 
+                          src={(users.find(u => u.uid === msg.uid)?.photoURL && !users.find(u => u.uid === msg.uid)?.photoURL?.includes('dicebear.com')) ? users.find(u => u.uid === msg.uid)?.photoURL : getFallbackAvatar(msg.name)} 
+                          alt={msg.name} 
+                          className="w-6 h-6 rounded-full object-cover shadow-sm bg-slate-200" 
+                        />
+                      ) : (
+                        <div className="w-6 h-6" />
+                      )}
+                    </div>
                   )}
+
+                  {/* Message Bubble */}
+                  <div 
+                    className={cn(
+                      "px-3 py-1.5 max-w-[260px] sm:max-w-sm break-words shadow-sm relative group text-[15px] leading-relaxed",
+                      isMe 
+                        ? "bg-[#d9fdd3] text-slate-800"
+                        : "bg-white text-slate-800",
+                      showPointer && isMe && "rounded-2xl rounded-tr-none",
+                      !showPointer && isMe && "rounded-2xl",
+                      showPointer && !isMe && "rounded-2xl rounded-tl-none",
+                      !showPointer && !isMe && "rounded-2xl",
+                      msg.replyTo ? "mt-6" : ""
+                    )}
+                  >
+                    {/* Tiny triangle pointer for WhatsApp style */}
+                    {showPointer && (
+                      <div className={cn(
+                        "absolute top-0 w-3 h-3 overflow-hidden",
+                        isMe ? "-right-2" : "-left-2"
+                      )}>
+                        <div className={cn(
+                          "w-4 h-4 rounded-full absolute -top-2",
+                          isMe ? "-right-2 bg-[#d9fdd3]" : "-left-2 bg-white"
+                        )} />
+                      </div>
+                    )}
+
+                    {msg.replyTo && (
+                      <div className={cn(
+                        "mb-1.5 text-xs truncate max-w-full px-2.5 py-1.5 rounded-lg border-r-4 relative cursor-pointer",
+                        isMe ? "bg-black/5 border-green-500 text-slate-700" : "bg-black/5 border-blue-500 text-slate-700"
+                      )}>
+                        <span className={cn(
+                          "font-semibold block truncate leading-tight text-[11px]",
+                          isMe ? "text-green-600" : "text-blue-600"
+                        )}>{msg.replyTo.name}</span>
+                        <span className="truncate block mt-0.5">{msg.replyTo.text}</span>
+                      </div>
+                    )}
+                    
+                    <div className="flex flex-col">
+                      <span className="whitespace-pre-wrap">{msg.text}</span>
+                      <div className="flex items-center justify-end gap-1 -mb-1 mt-1 shrink-0 float-left">
+                        <span className="text-[10px] text-slate-500 opacity-80 pt-1 relative top-[1px]">
+                          {new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                        </span>
+                        {isMe && (
+                          <div className="relative top-[1px]">
+                            {isRead ? <CheckCheck size={14} className="text-[#53bdeb]" /> : <Check size={14} className="text-slate-400" />}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Reply Button (shows on hover) */}
+                  <button 
+                    onClick={() => setReplyToMessage(msg)}
+                    className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-400 hover:text-slate-600 bg-white/50 border border-slate-100 hover:bg-white rounded-full transition-all shadow-sm"
+                    title="הגב"
+                  >
+                    <Reply size={14} />
+                  </button>
                 </div>
               </div>
-              
-              {/* Reply Button (shows on hover) */}
-              <button 
-                onClick={() => setReplyToMessage(msg)}
-                className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-400 hover:text-primary bg-slate-100 hover:bg-slate-200 rounded-full transition-all"
-                title="הגב"
-              >
-                <Reply size={14} />
-              </button>
             </div>
-          </div>
-        </div>
-      );
-    });
+          );
+        })}
+      </div>
+    ));
   };
 
   return (
@@ -320,7 +449,7 @@ export default function ChatPanel({ onClose }: ChatPanelProps) {
               </button>
             )}
             <h2 className="font-bold text-slate-900 flex items-center gap-2">
-              {activeTab === 'global' && <><MessageCircle size={20} className="text-primary" /> צ'אט קבוצתי</>}
+              {(activeTab === 'global' || activeTab === 'global_boys' || activeTab === 'global_girls') && <><MessageCircle size={20} className="text-primary" /> צ'אט קבוצתי</>}
               {activeTab === 'users' && <><Users size={20} className="text-primary" /> רשימת משתמשים</>}
               {activeTab === 'private' && selectedUser && (
                 <div className="flex items-center gap-2">
@@ -343,15 +472,38 @@ export default function ChatPanel({ onClose }: ChatPanelProps) {
         {/* Navigation Tabs */}
         {activeTab !== 'private' && (
           <div className="flex border-t border-slate-100 px-2 pb-1">
-            <button 
-              onClick={() => setActiveTab('global')}
-              className={cn(
-                "flex-1 py-2 text-sm font-medium border-b-2 transition-colors",
-                activeTab === 'global' ? "border-primary text-primary" : "border-transparent text-slate-500 hover:text-slate-700"
-              )}
-            >
-              קבוצתי
-            </button>
+            {appUser?.role === 'admin' ? (
+              <>
+                <button 
+                  onClick={() => setActiveTab('global_boys')}
+                  className={cn(
+                    "flex-1 py-2 text-sm font-medium border-b-2 transition-colors",
+                    activeTab === 'global_boys' ? "border-primary text-primary" : "border-transparent text-slate-500 hover:text-slate-700"
+                  )}
+                >
+                  בנים
+                </button>
+                <button 
+                  onClick={() => setActiveTab('global_girls')}
+                  className={cn(
+                    "flex-1 py-2 text-sm font-medium border-b-2 transition-colors",
+                    activeTab === 'global_girls' ? "border-primary text-primary" : "border-transparent text-slate-500 hover:text-slate-700"
+                  )}
+                >
+                  בנות
+                </button>
+              </>
+            ) : (
+              <button 
+                onClick={() => setActiveTab('global')}
+                className={cn(
+                  "flex-1 py-2 text-sm font-medium border-b-2 transition-colors",
+                  activeTab === 'global' ? "border-primary text-primary" : "border-transparent text-slate-500 hover:text-slate-700"
+                )}
+              >
+                קבוצתי
+              </button>
+            )}
             <button 
               onClick={() => setActiveTab('users')}
               className={cn(
@@ -369,11 +521,11 @@ export default function ChatPanel({ onClose }: ChatPanelProps) {
       </div>
 
       {/* Content Area */}
-      <div className="flex-1 overflow-hidden flex flex-col bg-slate-50/50">
+      <div className="flex-1 overflow-hidden flex flex-col bg-[#efeae2]">
         
         {/* Global Chat */}
-        {activeTab === 'global' && (
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {(activeTab === 'global' || activeTab === 'global_boys' || activeTab === 'global_girls') && (
+          <div className="flex-1 overflow-y-auto p-4 space-y-2">
             {renderMessageList(messages, true)}
             <div ref={messagesEndRef} />
           </div>
@@ -381,19 +533,19 @@ export default function ChatPanel({ onClose }: ChatPanelProps) {
         
         {/* Users List */}
         {activeTab === 'users' && (
-          <div className="flex-1 overflow-y-auto p-4">
-            <div className="relative mb-4">
-              <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          <div className="flex-1 overflow-y-auto bg-white pt-4">
+            <div className="relative mb-2 px-4">
+              <Search className="absolute right-7 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               <input 
                 type="text" 
                 placeholder="חיפוש משתמש..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                className="w-full pl-4 pr-10 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
+                className="w-full pl-4 pr-12 py-2 bg-slate-100 border-none rounded-xl focus:ring-2 focus:ring-primary/20 focus:outline-none transition-all shadow-sm"
               />
             </div>
             
-            <div className="space-y-2">
+            <div className="space-y-0 mt-2">
               {filteredUsers.length === 0 ? (
                 <div className="text-center text-slate-400 py-8">
                   לא נמצאו משתמשים.
@@ -410,29 +562,46 @@ export default function ChatPanel({ onClose }: ChatPanelProps) {
                     <button
                       key={user.uid}
                       onClick={() => startPrivateChat(user)}
-                      className={cn("w-full flex items-center gap-3 p-3 bg-white border hover:border-primary/30 rounded-xl transition-all text-right", hasUnread ? "border-red-300 bg-red-50/30" : "border-slate-100 hover:bg-primary/5")}
+                      className={cn("w-full flex items-center gap-3.5 p-3.5 hover:bg-slate-50 transition-colors text-right border-b border-slate-100 last:border-b-0", hasUnread ? "bg-primary/5" : "bg-white")}
                     >
-                      <div className="relative">
-                        <div className="w-10 h-10 bg-slate-100 text-slate-600 rounded-full flex items-center justify-center font-bold">
-                          {user.name.charAt(0)}
-                        </div>
+                      <div className="relative shrink-0">
+                        <img 
+                          src={(user.photoURL && !user.photoURL.includes('dicebear.com')) ? user.photoURL : getFallbackAvatar(user.name)} 
+                          alt={user.name} 
+                          className="w-12 h-12 rounded-full object-cover bg-slate-100 border border-slate-100" 
+                        />
                         {isRecentlyActive && !hasUnread && (
-                          <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></div>
-                        )}
-                        {hasUnread && (
-                          <div className="absolute bottom-0 right-0 w-3 h-3 bg-red-500 border-2 border-white rounded-full"></div>
+                          <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-500 border-2 border-white rounded-full"></div>
                         )}
                       </div>
                       <div className="flex-1 overflow-hidden">
-                        <div className={cn("font-medium truncate", hasUnread ? "text-red-600 font-bold" : "text-slate-900")}>{user.name}</div>
-                        <div className="text-xs text-slate-500 truncate">{user.yeshiva}</div>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className={cn("font-medium truncate text-[15px]", hasUnread ? "text-slate-900 font-bold" : "text-slate-900")}>{user.name}</div>
+                          {lastMessagesMap[user.uid]?.timestamp && (
+                            <div className={cn("text-[11px] shrink-0 mt-0.5", hasUnread ? "text-[#25D366] font-medium" : "text-slate-400")}>
+                               {new Date(lastMessagesMap[user.uid].timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex items-center justify-between gap-2 mt-0.5">
+                          {lastMessagesMap[user.uid]?.text ? (
+                            <div className="text-[13px] text-slate-500 truncate flex items-center gap-1" dir="auto">
+                              {lastMessagesMap[user.uid].senderId === appUser?.uid && (
+                                <CheckCheck size={14} className={hasUnread ? "text-slate-400" : "text-[#53bdeb]"} />
+                              )}
+                              <span className="truncate">{lastMessagesMap[user.uid].text}</span>
+                            </div>
+                          ) : (
+                            <div className="text-[13px] text-slate-400 truncate">{user.yeshiva}</div>
+                          )}
+                          
+                          {hasUnread && (
+                            <div className="w-5 h-5 bg-[#25D366] text-white text-[10px] font-bold rounded-full flex items-center justify-center shrink-0">
+                              !
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      {hasUnread && (
-                        <div className="w-2.5 h-2.5 bg-red-500 rounded-full shrink-0"></div>
-                      )}
-                      {!hasUnread && (
-                        <MessageCircle size={16} className="text-slate-300" />
-                      )}
                     </button>
                   );
                 })
@@ -443,7 +612,7 @@ export default function ChatPanel({ onClose }: ChatPanelProps) {
         
         {/* Private Chat */}
         {activeTab === 'private' && selectedUser && (
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div className="flex-1 overflow-y-auto p-4 space-y-2">
             {renderMessageList(privateMessages, false)}
             <div ref={privateMessagesEndRef} />
           </div>
@@ -452,56 +621,55 @@ export default function ChatPanel({ onClose }: ChatPanelProps) {
       </div>
 
       {/* Input Area (Only for chats) */}
-      {(activeTab === 'global' || activeTab === 'private') && (
-        <div className="p-3 bg-white border-t border-slate-100 flex flex-col gap-2 relative">
+      {(isGlobalTab || activeTab === 'private') && (
+        <div className="p-3 bg-[#efeae2] flex flex-col gap-2 relative">
           
           {replyToMessage && (
-            <div className="flex items-center justify-between bg-slate-50 px-3 py-2 rounded-lg border border-slate-200 text-sm">
-              <div className="flex items-center gap-2 overflow-hidden">
-                <Reply size={14} className="text-primary shrink-0" />
-                <div className="truncate">
-                  <span className="font-semibold text-primary ml-1">{replyToMessage.name}:</span>
+            <div className="flex items-center justify-between bg-white px-3 py-2 rounded-xl text-sm border-r-4 border-r-primary mx-1 mb-1 shadow-sm">
+              <div className="flex items-center gap-2 overflow-hidden w-full">
+                <div className="flex flex-col truncate flex-1">
+                  <span className="font-semibold text-primary">{replyToMessage.name}</span>
                   <span className="text-slate-600 truncate">{replyToMessage.text}</span>
                 </div>
               </div>
               <button 
                 onClick={() => setReplyToMessage(null)}
-                className="p-1 text-slate-400 hover:text-slate-600 shrink-0"
+                className="p-2 text-slate-400 hover:text-slate-600 shrink-0"
               >
-                <X size={14} />
+                <X size={16} />
               </button>
             </div>
           )}
 
-          <form onSubmit={handleSend} className="relative flex-1">
+          <form onSubmit={handleSend} className="relative flex items-center gap-2">
             <input
               type="text"
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
-              disabled={(activeTab === 'global' && canNotReply) || isSending}
+              disabled={(isGlobalTab && canNotReply) || isSending}
               placeholder={
-                activeTab === 'global' && canNotReply 
+                isGlobalTab && canNotReply 
                   ? "המתן לתגובה כדי להמשיך לכתוב..." 
                   : "הקלד הודעה..."
               }
               className={cn(
-                "w-full pl-12 pr-4 py-3 rounded-xl border focus:ring-2 focus:outline-none transition-all",
-                (activeTab === 'global' && canNotReply)
-                  ? "bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed" 
-                  : "bg-slate-50 border-slate-200 focus:ring-primary/20 focus:border-primary focus:bg-white"
+                "flex-1 px-4 py-3 rounded-full border-none focus:ring-0 focus:outline-none transition-all shadow-sm text-[15px]",
+                (isGlobalTab && canNotReply)
+                  ? "bg-slate-100 text-slate-400 cursor-not-allowed" 
+                  : "bg-white text-slate-800"
               )}
             />
             <button
               type="submit"
-              disabled={!newMessage.trim() || (activeTab === 'global' && canNotReply) || isSending}
-              className="absolute left-2 top-1/2 -translate-y-1/2 p-2 text-primary hover:bg-primary/10 rounded-lg transition-colors disabled:opacity-50 disabled:hover:bg-transparent"
+              disabled={!newMessage.trim() || (isGlobalTab && canNotReply) || isSending}
+              className="p-3 bg-primary text-white hover:bg-primary/90 rounded-full transition-colors disabled:opacity-50 disabled:hover:bg-primary shadow-sm shrink-0 flex items-center justify-center"
             >
-              <Send size={20} className="rotate-180" />
+              <Send size={20} className="rotate-180 relative right-0.5" />
             </button>
           </form>
-          {activeTab === 'global' && canNotReply && (
-            <p className="text-xs text-orange-500 mt-1 text-center">
-              ניתן לשלוח רק הודעה אחת ברצף.
+          {isGlobalTab && canNotReply && (
+            <p className="text-[11px] text-orange-600 mt-0.5 text-center bg-white/60 py-1 rounded-full px-4 mx-auto w-fit">
+              ניתן לשלוח רק הודעה אחת ברצף בשיחה הקבוצתית.
             </p>
           )}
         </div>

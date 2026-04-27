@@ -36,22 +36,24 @@ export default function Register() {
   const yeshivaPlaceholder = gender === 'boy' ? 'בחר ישיבה' : gender === 'girl' ? 'בחר אולפנה' : (isTefillin ? texts.auth.selectYeshiva : 'בחר מוסד');
 
   useEffect(() => {
-    const fetchYeshivas = async () => {
+    const fetchInstitutions = async () => {
+      if (!gender) return;
       try {
-        const q = query(collection(db, 'yeshivas'));
+        const collectionName = gender === 'boy' ? 'yeshivas' : 'ulpanas';
+        const q = query(collection(db, collectionName));
         const querySnapshot = await getDocs(q);
-        const yeshivasList: Yeshiva[] = [];
+        const list: Yeshiva[] = [];
         querySnapshot.forEach((doc) => {
-          yeshivasList.push({ id: doc.id, name: doc.data().name });
+          list.push({ id: doc.id, name: doc.data().name });
         });
-        yeshivasList.sort((a, b) => a.name.localeCompare(b.name, 'he'));
-        setAvailableYeshivas(yeshivasList);
+        list.sort((a, b) => a.name.localeCompare(b.name, 'he'));
+        setAvailableYeshivas(list);
       } catch (err) {
-        console.error("Error fetching yeshivas:", err);
+        console.error("Error fetching institutions:", err);
       }
     };
-    fetchYeshivas();
-  }, []);
+    fetchInstitutions();
+  }, [gender]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

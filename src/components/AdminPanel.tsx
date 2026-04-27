@@ -53,9 +53,11 @@ export default function AdminPanel() {
   const texts = settings?.texts || FALLBACK_TEXTS;
   const [users, setUsers] = useState<AppUser[]>([]);
   const [yeshivas, setYeshivas] = useState<Yeshiva[]>([]);
+  const [ulpanas, setUlpanas] = useState<Yeshiva[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState({ name: '', yeshiva: '', clicks: 0, candleClicks: 0, otherClicks: 0 });
-  const [newYeshivaName, setNewYeshivaName] = useState('');
+  const [editForm, setEditForm] = useState({ name: '', email: '', phone: '', gender: '' as 'boy' | 'girl' | '', yeshiva: '', clicks: 0, candleClicks: 0, otherClicks: 0 });
+  const [newInstitutionName, setNewInstitutionName] = useState('');
+  const [institutionAddType, setInstitutionAddType] = useState<'yeshivas' | 'ulpanas'>('yeshivas');
   
   const [activeAdminTab, setActiveAdminTab] = useState<'users' | 'yeshivas' | 'settings'>('users');
   const [tempSettings, setTempSettings] = useState(settings);
@@ -203,9 +205,26 @@ export default function AdminPanel() {
       }
     );
 
+    const qUlpanas = query(collection(db, 'ulpanas'));
+    const unsubscribeUlpanas = onSnapshot(
+      qUlpanas,
+      (snapshot) => {
+        const newUlpanas: Yeshiva[] = [];
+        snapshot.forEach((doc) => {
+          newUlpanas.push({ id: doc.id, name: doc.data().name });
+        });
+        newUlpanas.sort((a, b) => a.name.localeCompare(b.name, 'he'));
+        setUlpanas(newUlpanas);
+      },
+      (error) => {
+        console.error("Error fetching ulpanas:", error);
+      }
+    );
+
     return () => {
       unsubscribeUsers();
       unsubscribeYeshivas();
+      unsubscribeUlpanas();
     };
   }, []);
 
@@ -218,14 +237,16 @@ export default function AdminPanel() {
   };
 
   const handleDelete = async (uid: string) => {
-    if (window.confirm(texts.admin.actions.confirmDelete)) {
+    try {
       await deleteDoc(doc(db, 'users', uid));
+    } catch (e) {
+      console.error(e);
     }
   };
 
   const startEdit = (user: AppUser) => {
     setEditingId(user.uid);
-    setEditForm({ name: user.name, yeshiva: user.yeshiva, clicks: user.clicks || 0, candleClicks: user.candleClicks || 0, otherClicks: user.otherClicks || 0 });
+    setEditForm({ name: user.name, email: user.email || '', phone: user.phone || '', gender: user.gender || '', yeshiva: user.yeshiva, clicks: user.clicks || 0, candleClicks: user.candleClicks || 0, otherClicks: user.otherClicks || 0 });
   };
 
   const saveEdit = async (uid: string) => {
@@ -244,6 +265,9 @@ export default function AdminPanel() {
     const updateData: any = {
       name: editForm.name,
       yeshiva: editForm.yeshiva,
+      email: editForm.email,
+      phone: editForm.phone,
+      gender: editForm.gender,
       clicks: newClicks,
       candleClicks: newCandleClicks,
       otherClicks: newOtherClicks
@@ -331,24 +355,22 @@ export default function AdminPanel() {
     setEditingId(null);
   };
 
-  const handleAddYeshiva = async (e: React.FormEvent) => {
+  const handleAddInstitution = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newYeshivaName.trim()) return;
+    if (!newInstitutionName.trim()) return;
     try {
-      await addDoc(collection(db, 'yeshivas'), { name: newYeshivaName.trim() });
-      setNewYeshivaName('');
+      await addDoc(collection(db, institutionAddType), { name: newInstitutionName.trim() });
+      setNewInstitutionName('');
     } catch (error) {
-      console.error("Error adding yeshiva:", error);
+      console.error(`Error adding ${institutionAddType}:`, error);
     }
   };
 
-  const handleDeleteYeshiva = async (id: string, name: string) => {
-    if (window.confirm(`האם אתה בטוח שברצונך למחוק את ה${isTefillin ? 'ישיבה' : 'אולפנה'} "${name}"?`)) {
-      try {
-        await deleteDoc(doc(db, 'yeshivas', id));
-      } catch (error) {
-        console.error("Error deleting yeshiva:", error);
-      }
+  const handleDeleteInstitution = async (id: string, type: 'yeshivas' | 'ulpanas') => {
+    try {
+      await deleteDoc(doc(db, type, id));
+    } catch (error) {
+      console.error(`Error deleting ${type}:`, error);
     }
   };
 
@@ -363,10 +385,10 @@ export default function AdminPanel() {
           {texts.admin.title}
         </button>
         <button
-          onClick={() => setActiveAdminTab('yeshivas')}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeAdminTab === 'yeshivas' ? 'bg-primary text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}
+          onClick={() => setActiveAdminTab('institutions')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeAdminTab === 'institutions' ? 'bg-primary text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}
         >
-          {institutionTitle}
+          ניהול מוסדות
         </button>
         <button
           onClick={() => setActiveAdminTab('settings')}
@@ -376,48 +398,84 @@ export default function AdminPanel() {
         </button>
       </div>
 
-      {activeAdminTab === 'yeshivas' && (
+      {activeAdminTab === 'institutions' && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300">
           <div className="p-6 border-b border-slate-200 bg-slate-50 flex items-center gap-3">
             <Building2 className="text-primary" size={24} />
-            <h2 className="text-xl font-bold text-slate-900">{institutionTitle}</h2>
+            <h2 className="text-xl font-bold text-slate-900">ניהול מוסדות (ישיבות ואולפנות)</h2>
           </div>
           <div className="p-6">
-            <form onSubmit={handleAddYeshiva} className="flex gap-3 mb-6">
+            <form onSubmit={handleAddInstitution} className="flex gap-3 mb-6 bg-slate-50 p-4 rounded-xl border border-slate-100">
+              <select
+                value={institutionAddType}
+                onChange={(e) => setInstitutionAddType(e.target.value as 'yeshivas' | 'ulpanas')}
+                className="px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary outline-none transition-all bg-white"
+              >
+                <option value="yeshivas">ישיבה (בנים)</option>
+                <option value="ulpanas">אולפנה (בנות)</option>
+              </select>
+            
               <input
                 type="text"
-                value={newYeshivaName}
-                onChange={(e) => setNewYeshivaName(e.target.value)}
-                placeholder={addInstitutionPlaceholder}
+                value={newInstitutionName}
+                onChange={(e) => setNewInstitutionName(e.target.value)}
+                placeholder="הכנס שם מוסד..."
                 className="flex-1 px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary outline-none transition-all"
               />
               <button
                 type="submit"
-                disabled={!newYeshivaName.trim()}
+                disabled={!newInstitutionName.trim()}
                 className="flex items-center gap-2 px-6 py-2 bg-primary hover:bg-secondary text-white font-medium rounded-xl transition-colors disabled:opacity-50"
               >
                 <Plus size={18} />
-                {addInstitutionText}
+                הוסף מוסד
               </button>
             </form>
             
-            <div className="flex flex-wrap gap-2">
-              {yeshivas.map((yeshiva) => (
-                <div key={yeshiva.id} className="flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
-                  <span className="text-slate-700 font-medium">{yeshiva.name}</span>
-                  <button
-                    onClick={() => handleDeleteYeshiva(yeshiva.id, yeshiva.name)}
-                    className="text-slate-400 hover:text-red-500 transition-colors"
-                    title={confirmDeleteInstitutionText}
-                  >
-                    <X size={16} />
-                  </button>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="border border-slate-100 rounded-xl p-4">
+                <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">רשימת ישיבות (בנים)</h3>
+                <div className="flex flex-wrap gap-2">
+                  {yeshivas.map((yeshiva) => (
+                    <div key={yeshiva.id} className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">
+                      <span className="text-slate-700 font-medium">{yeshiva.name}</span>
+                      <button
+                        onClick={() => handleDeleteInstitution(yeshiva.id, 'yeshivas')}
+                        className="text-slate-400 hover:text-red-500 transition-colors"
+                        title="מחק ישיבה"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                  ))}
+                  {yeshivas.length === 0 && (
+                    <div className="text-slate-500 text-sm">אין ישיבות במערכת</div>
+                  )}
                 </div>
-              ))}
-              {yeshivas.length === 0 && (
-                <div className="text-slate-500 text-sm">{noInstitutionsText}</div>
-              )}
+              </div>
+              
+              <div className="border border-slate-100 rounded-xl p-4">
+                <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">רשימת אולפנות (בנות)</h3>
+                <div className="flex flex-wrap gap-2">
+                  {ulpanas.map((ulpana) => (
+                    <div key={ulpana.id} className="flex items-center gap-2 bg-orange-50 px-3 py-1.5 rounded-lg border border-orange-100">
+                      <span className="text-slate-700 font-medium">{ulpana.name}</span>
+                      <button
+                        onClick={() => handleDeleteInstitution(ulpana.id, 'ulpanas')}
+                        className="text-slate-400 hover:text-red-500 transition-colors"
+                        title="מחק אולפנה"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                  ))}
+                  {ulpanas.length === 0 && (
+                    <div className="text-slate-500 text-sm">אין אולפנות במערכת</div>
+                  )}
+                </div>
+              </div>
             </div>
+            
           </div>
         </div>
       )}
@@ -461,21 +519,65 @@ export default function AdminPanel() {
                         <span className="font-medium text-slate-900">{user.name}</span>
                       )}
                     </td>
-                    <td className="p-4 text-slate-500" dir="ltr">{user.email}</td>
+                    <td className="p-4 text-slate-500" dir="ltr">
+                      {editingId === user.uid ? (
+                        <input
+                          type="email"
+                          value={editForm.email}
+                          onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                          className="border rounded px-2 py-1 w-full text-right"
+                          dir="rtl"
+                        />
+                      ) : (
+                        user.email
+                      )}
+                    </td>
                     <td className="p-4 text-slate-500 text-sm">
-                      {user.gender === 'boy' ? 'בן' : user.gender === 'girl' ? 'בת' : '-'}
+                      {editingId === user.uid ? (
+                        <select
+                          value={editForm.gender}
+                          onChange={(e) => setEditForm({ ...editForm, gender: e.target.value as 'boy' | 'girl' })}
+                          className="border rounded px-2 py-1 w-full"
+                        >
+                          <option value="boy">בן</option>
+                          <option value="girl">בת</option>
+                        </select>
+                      ) : (
+                        user.gender === 'boy' ? 'בן' : user.gender === 'girl' ? 'בת' : '-'
+                      )}
                     </td>
                     <td className="p-4 text-slate-500 text-sm" dir="ltr">
-                      {user.phone || '-'}
+                      {editingId === user.uid ? (
+                        <input
+                          type="tel"
+                          value={editForm.phone}
+                          onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                          className="border rounded px-2 py-1 w-full text-right"
+                          dir="rtl"
+                        />
+                      ) : (
+                        user.phone || '-'
+                      )}
                     </td>
                     <td className="p-4">
                       {editingId === user.uid ? (
-                        <input
-                          type="text"
+                        <select
                           value={editForm.yeshiva}
                           onChange={(e) => setEditForm({ ...editForm, yeshiva: e.target.value })}
                           className="border rounded px-2 py-1 w-full"
-                        />
+                        >
+                          <option value="">בחר מוסד</option>
+                          <optgroup label="ישיבות">
+                            {yeshivas.map(y => (
+                              <option key={y.id} value={y.name}>{y.name}</option>
+                            ))}
+                          </optgroup>
+                          <optgroup label="אולפנות">
+                            {ulpanas.map(u => (
+                              <option key={u.id} value={u.name}>{u.name}</option>
+                            ))}
+                          </optgroup>
+                        </select>
                       ) : (
                         <span className="text-slate-600">{user.yeshiva}</span>
                       )}

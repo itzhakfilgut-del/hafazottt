@@ -5,6 +5,7 @@ import { AppUser, useAuth } from '../contexts/AuthContext';
 import { useCampaign } from '../contexts/CampaignContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { Trophy, Medal, Plus, Minus, Trash2, Lock } from 'lucide-react';
+import { cn, getFallbackAvatar } from '../lib/utils';
 import { APP_TEXTS as FALLBACK_TEXTS } from '../constants';
 import ChangePasswordModal from './ChangePasswordModal';
 
@@ -92,12 +93,10 @@ export default function Leaderboard() {
   };
 
   const handleDeleteUser = async (uid: string, name: string) => {
-    if (window.confirm(`${texts.admin.actions.confirmDelete} ${name}?`)) {
-      try {
-        await deleteDoc(doc(db, 'users', uid));
-      } catch (error) {
-        console.error("Error deleting user:", error);
-      }
+    try {
+      await deleteDoc(doc(db, 'users', uid));
+    } catch (error) {
+      console.error("Error deleting user:", error);
     }
   };
 
@@ -118,16 +117,16 @@ export default function Leaderboard() {
                   {index === 0 && <Medal className="absolute -top-2 -right-2 text-amber-400 z-10" size={20} fill="currentColor" />}
                   {index === 1 && <Medal className="absolute -top-2 -right-2 text-slate-400 z-10" size={20} fill="currentColor" />}
                   {index === 2 && <Medal className="absolute -top-2 -right-2 text-amber-700 z-10" size={20} fill="currentColor" />}
-                  {user.photoURL ? (
+                  {user.photoURL && !user.photoURL.includes('dicebear.com') ? (
                     <img src={user.photoURL} alt={user.name} className="w-full h-full rounded-full object-cover" />
                   ) : (
-                    <span>{index + 1}</span>
+                    <>
+                      <img src={getFallbackAvatar(user.name)} alt={user.name} className="w-full h-full rounded-full object-cover" />
+                    </>
                   )}
-                  {user.photoURL && (
-                    <div className="absolute -bottom-1 -left-1 bg-white text-[10px] w-5 h-5 rounded-full flex items-center justify-center font-bold text-slate-500 shadow-sm border border-slate-100">
-                      {index + 1}
-                    </div>
-                  )}
+                  <div className="absolute -bottom-1 -left-1 bg-white text-[10px] w-5 h-5 rounded-full flex items-center justify-center font-bold text-slate-500 shadow-sm border border-slate-100">
+                    {index + 1}
+                  </div>
                 </div>
                 <div>
                   <div className="font-bold text-slate-900">{user.name}</div>
