@@ -12,6 +12,22 @@ interface Yeshiva {
   name: string;
 }
 
+const deepMerge = (target: any, source: any) => {
+  if (!source) return target;
+  let output = Object.assign({}, target);
+  Object.keys(source).forEach(key => {
+    if (source[key] instanceof Object && !Array.isArray(source[key])) {
+      if (!(key in target))
+        Object.assign(output, { [key]: source[key] });
+      else
+        output[key] = deepMerge(target[key], source[key]);
+    } else {
+      Object.assign(output, { [key]: source[key] });
+    }
+  });
+  return output;
+};
+
 const TextEditor = ({ obj, path, onChange }: { obj: any, path: string[], onChange: (path: string[], value: string) => void }) => {
   return (
     <div className="space-y-4">
@@ -60,7 +76,12 @@ export default function AdminPanel() {
   const [institutionAddType, setInstitutionAddType] = useState<'yeshivas' | 'ulpanas'>('yeshivas');
   
   const [activeAdminTab, setActiveAdminTab] = useState<'users' | 'yeshivas' | 'settings'>('users');
-  const [tempSettings, setTempSettings] = useState(settings);
+  const [tempSettings, setTempSettings] = useState(() => {
+    return settings ? {
+      ...settings,
+      texts: deepMerge(FALLBACK_TEXTS, settings.texts || {})
+    } : { texts: FALLBACK_TEXTS, theme: { primaryColor: '#3b82f6', secondaryColor: '#10b981', backgroundColor: '#f8fafc', logoUrl: '' } };
+  });
   const [isSaving, setIsSaving] = useState(false);
 
   const isTefillin = campaign === 'tefillin';
@@ -74,7 +95,12 @@ export default function AdminPanel() {
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   useEffect(() => {
-    setTempSettings(settings);
+    if (settings) {
+      setTempSettings({
+        ...settings,
+        texts: deepMerge(FALLBACK_TEXTS, settings.texts || {})
+      });
+    }
   }, [settings]);
 
   const handleTextChange = (path: string[], value: string) => {

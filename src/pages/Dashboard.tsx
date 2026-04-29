@@ -17,7 +17,7 @@ import ChatPanel from '../components/ChatPanel';
 import AvatarPicker from '../components/AvatarPicker';
 import { getFallbackAvatar } from '../lib/utils';
 
-type Tab = 'clicker' | 'map' | 'myclicks' | 'leaderboard' | 'admin';
+type Tab = 'clicker' | 'map' | 'leaderboard' | 'admin';
 
 export default function Dashboard() {
   const { appUser } = useAuth();
@@ -27,6 +27,7 @@ export default function Dashboard() {
   const theme = settings?.theme;
   const [activeTab, setActiveTab] = useState<Tab>('clicker');
   const [showUserSettings, setShowUserSettings] = useState(false);
+  const [showMyClicks, setShowMyClicks] = useState(false);
   const [showChat, setShowChat] = useState(false);
   const [unreadPrivateCount, setUnreadPrivateCount] = useState(0);
   const [hasGlobalUnread, setHasGlobalUnread] = useState(false);
@@ -154,19 +155,19 @@ export default function Dashboard() {
               <button
                 onClick={() => setShowUserSettings(true)}
                 className="flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg transition-colors text-sm font-medium"
-                title="הגדרות אישיות"
+                title={texts.dashboard?.personalSettings || FALLBACK_TEXTS.dashboard.personalSettings}
               >
                 <img 
                   src={(appUser?.photoURL && !appUser.photoURL.includes('dicebear.com')) ? appUser.photoURL : getFallbackAvatar(appUser?.name || '?')} 
                   alt="Avatar" 
                   className="w-6 h-6 rounded-full object-cover shadow-sm bg-slate-200" 
                 />
-                <span className="hidden sm:inline">הגדרות אישיות</span>
+                <span className="hidden sm:inline">{texts.dashboard?.personalSettings || FALLBACK_TEXTS.dashboard.personalSettings}</span>
               </button>
               <button
                 onClick={() => setShowChat(true)}
                 className="flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-2 bg-slate-100 text-slate-700 hover:bg-primary/10 hover:text-primary rounded-lg transition-colors text-sm font-medium relative"
-                title="צ'אט"
+                title={texts.dashboard?.chat || FALLBACK_TEXTS.dashboard.chat}
               >
                 <div className="relative">
                   <MessageCircle size={18} />
@@ -174,7 +175,7 @@ export default function Dashboard() {
                     <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 border-2 border-slate-100 rounded-full"></span>
                   )}
                 </div>
-                <span className="hidden sm:inline">צ'אט</span>
+                <span className="hidden sm:inline">{texts.dashboard?.chat || FALLBACK_TEXTS.dashboard.chat}</span>
               </button>
               <button
                 onClick={() => auth.signOut()}
@@ -214,16 +215,6 @@ export default function Dashboard() {
             {texts.tabs.map}
           </button>
           <button
-            onClick={() => setActiveTab('myclicks')}
-            className={cn(
-              "flex items-center gap-2 px-6 py-2.5 rounded-lg font-medium text-sm transition-all whitespace-nowrap",
-              activeTab === 'myclicks' ? "bg-blue-50 text-primary shadow-sm" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-            )}
-          >
-            <Navigation size={18} />
-            הלחיצות שלי
-          </button>
-          <button
             onClick={() => setActiveTab('leaderboard')}
             className={cn(
               "flex items-center gap-2 px-6 py-2.5 rounded-lg font-medium text-sm transition-all whitespace-nowrap",
@@ -251,7 +242,6 @@ export default function Dashboard() {
         <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
           {activeTab === 'clicker' && <Clicker />}
           {activeTab === 'map' && <MapView />}
-          {activeTab === 'myclicks' && <MyClicks />}
           {activeTab === 'leaderboard' && <Leaderboard />}
           {activeTab === 'admin' && appUser?.role === 'admin' && <AdminPanel />}
         </div>
@@ -279,16 +269,6 @@ export default function Dashboard() {
           >
             <MapIcon size={20} />
             <span className="text-[10px] font-medium">{texts.tabs.map}</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('myclicks')}
-            className={cn(
-              "flex flex-col items-center justify-center gap-1 flex-1 h-full transition-colors",
-              activeTab === 'myclicks' ? "text-primary" : "text-slate-400"
-            )}
-          >
-            <Navigation size={20} />
-            <span className="text-[10px] font-medium">הלחיצות שלי</span>
           </button>
           <button
             onClick={() => setActiveTab('leaderboard')}
@@ -322,7 +302,7 @@ export default function Dashboard() {
             <div className="flex justify-between items-center p-4 border-b border-slate-100 bg-slate-50">
               <h3 className="font-bold text-slate-900 flex items-center gap-2">
                 <Settings size={18} className="text-primary" />
-                הגדרות אישיות
+                {texts.dashboard?.personalSettings || FALLBACK_TEXTS.dashboard.personalSettings}
               </h3>
               <button 
                 onClick={() => setShowUserSettings(false)}
@@ -336,8 +316,8 @@ export default function Dashboard() {
               <div className="space-y-6">
                 <AvatarPicker />
                 <div className="space-y-3">
-                  <label className="block text-sm font-medium text-slate-700">בחירת מסך ברירת מחדל:</label>
-                  <p className="text-xs text-slate-500 -mt-2 mb-3">מסך זה יוצג אוטומטית בכל כניסה לאפליקציה.</p>
+                  <label className="block text-sm font-medium text-slate-700">{texts.dashboard?.defaultScreenTitle || FALLBACK_TEXTS.dashboard.defaultScreenTitle}</label>
+                  <p className="text-xs text-slate-500 -mt-2 mb-3">{texts.dashboard?.defaultScreenDesc || FALLBACK_TEXTS.dashboard.defaultScreenDesc}</p>
                   
                   <div className={cn("grid gap-2", appUser?.gender === 'girl' ? 'grid-cols-2' : 'grid-cols-3')}>
                     {appUser?.gender !== 'girl' && (
@@ -350,7 +330,7 @@ export default function Dashboard() {
                             : "border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
                         )}
                       >
-                        תפילין
+                        {texts.dashboard?.tefillin || FALLBACK_TEXTS.dashboard.tefillin}
                       </button>
                     )}
                     <button
@@ -377,6 +357,23 @@ export default function Dashboard() {
                     </button>
                   </div>
                 </div>
+                
+                <div className="pt-4 border-t border-slate-100">
+                  <button
+                    onClick={() => {
+                      setShowUserSettings(false);
+                      setShowMyClicks(true);
+                    }}
+                    className="w-full flex items-center justify-between p-3 rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors text-right"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="bg-primary/10 text-primary p-2 rounded-lg">
+                        <Navigation size={18} />
+                      </div>
+                      <span className="font-medium text-slate-800">{texts.tabs?.myclicks || FALLBACK_TEXTS.tabs.myclicks}</span>
+                    </div>
+                  </button>
+                </div>
               </div>
             </div>
             
@@ -398,6 +395,24 @@ export default function Dashboard() {
           <div className="absolute inset-0" onClick={() => setShowChat(false)} />
           <div className="relative h-full w-full sm:w-96">
             <ChatPanel onClose={() => setShowChat(false)} />
+          </div>
+        </div>
+      )}
+
+      {/* My Clicks Modal */}
+      {showMyClicks && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex p-4 justify-center items-start sm:items-center overflow-y-auto">
+          <div className="absolute inset-0" onClick={() => setShowMyClicks(false)} />
+          <div className="w-full max-w-2xl relative my-auto animate-in zoom-in-95 duration-200" dir="rtl">
+            <div className="absolute top-4 left-4 z-10">
+              <button 
+                onClick={() => setShowMyClicks(false)}
+                className="bg-white/80 backdrop-blur text-slate-600 p-2 rounded-full hover:bg-white shadow-sm"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <MyClicks />
           </div>
         </div>
       )}

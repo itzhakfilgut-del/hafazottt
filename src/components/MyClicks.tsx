@@ -99,7 +99,7 @@ export default function MyClicks() {
     <div className="max-w-2xl mx-auto bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
       <div className="p-6 border-b border-slate-200 bg-slate-50 flex items-center gap-3">
         <Navigation className="text-primary" size={24} />
-        <h2 className="text-xl font-bold text-slate-900">הלחיצות שלי</h2>
+        <h2 className="text-xl font-bold text-slate-900">{texts.myclicks?.title || FALLBACK_TEXTS.myclicks.title}</h2>
       </div>
       
       <div className="divide-y divide-slate-100">
@@ -125,7 +125,7 @@ export default function MyClicks() {
                   rel="noopener noreferrer"
                   className={`text-sm hover:underline mt-1 inline-block ${isTefillin ? 'text-blue-500 hover:text-blue-700' : isOther ? 'text-emerald-500 hover:text-emerald-700' : 'text-amber-500 hover:text-amber-700'}`}
                 >
-                  הצג במפה ({record.location.lat.toFixed(4)}, {record.location.lng.toFixed(4)})
+                  {texts.myclicks?.showOnMap || FALLBACK_TEXTS.myclicks.showOnMap} ({record.location.lat.toFixed(4)}, {record.location.lng.toFixed(4)})
                 </a>
               </div>
             </div>
@@ -136,7 +136,7 @@ export default function MyClicks() {
               className="flex items-center justify-center gap-2 px-4 py-2 bg-slate-100 hover:bg-red-50 text-slate-600 hover:text-red-600 rounded-lg transition-colors text-sm font-medium self-end sm:self-auto disabled:opacity-50"
             >
               <Trash2 size={16} />
-              מחק
+              {texts.myclicks?.delete || FALLBACK_TEXTS.myclicks.delete}
             </button>
           </div>
         ))}
@@ -144,8 +144,8 @@ export default function MyClicks() {
         {myClicks.length === 0 && (
           <div className="p-12 text-center flex flex-col items-center justify-center text-slate-500">
             <MapPin size={48} className="text-slate-200 mb-4" />
-            <h3 className="text-lg font-bold text-slate-700 mb-2">אין היסטורית לחיצות</h3>
-            <p>עדיין לא נרשמו לחיצות עם מיקום מוגדר.</p>
+            <h3 className="text-lg font-bold text-slate-700 mb-2">{texts.myclicks?.empty || FALLBACK_TEXTS.myclicks.empty}</h3>
+            <p>{texts.myclicks?.emptyDesc || FALLBACK_TEXTS.myclicks.emptyDesc}</p>
           </div>
         )}
       </div>

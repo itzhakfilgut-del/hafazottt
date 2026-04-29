@@ -68,7 +68,19 @@ export default function Register() {
     setError('');
     
     if (!gender) {
-      setError('נא לבחור מין (בן/בת)');
+      setError(texts.auth.genderSelectTitle || FALLBACK_TEXTS.auth.genderSelectTitle);
+      return;
+    }
+    
+    const cleanPhone = phone.replace(/\D/g, '');
+    if (cleanPhone.length < 9 || cleanPhone.length > 10 || !cleanPhone.startsWith('0')) {
+      setError(texts.auth.invalidPhone || FALLBACK_TEXTS.auth.invalidPhone);
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+    if (!emailRegex.test(email)) {
+      setError(texts.auth.invalidEmail || FALLBACK_TEXTS.auth.invalidEmail);
       return;
     }
     
@@ -136,8 +148,8 @@ export default function Register() {
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-100 text-primary mb-4">
             <UserPlus size={32} />
           </div>
-          <h2 className="text-2xl font-bold text-slate-900">{user ? 'השלמת הרשמה' : texts.auth.registerTitle}</h2>
-          <p className="text-slate-500 mt-2">{user ? 'אנא השלם את פרטי הפרופיל שלך' : texts.auth.registerSubtitle}</p>
+          <h2 className="text-2xl font-bold text-slate-900">{user ? (texts.auth.profileCompleteTitle || FALLBACK_TEXTS.auth.profileCompleteTitle) : texts.auth.registerTitle}</h2>
+          <p className="text-slate-500 mt-2">{user ? (texts.auth.profileCompleteDesc || FALLBACK_TEXTS.auth.profileCompleteDesc) : texts.auth.registerSubtitle}</p>
         </div>
 
         {error && (
@@ -159,21 +171,21 @@ export default function Register() {
           </div>
           
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">אני:</label>
+            <label className="block text-sm font-medium text-slate-700 mb-2">{texts.auth.iAm || FALLBACK_TEXTS.auth.iAm}</label>
             <div className="grid grid-cols-2 gap-3">
               <button
                 type="button"
                 onClick={() => setGender('boy')}
                 className={`py-2 px-4 rounded-xl border transition-all ${gender === 'boy' ? 'bg-primary text-white border-primary' : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'}`}
               >
-                בן
+                {texts.auth.boy || FALLBACK_TEXTS.auth.boy}
               </button>
               <button
                 type="button"
                 onClick={() => setGender('girl')}
                 className={`py-2 px-4 rounded-xl border transition-all ${gender === 'girl' ? 'bg-orange-500 text-white border-orange-500' : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'}`}
               >
-                בת
+                {texts.auth.girl || FALLBACK_TEXTS.auth.girl}
               </button>
             </div>
           </div>
@@ -192,11 +204,21 @@ export default function Register() {
                   <option key={y.id} value={y.name}>{y.name}</option>
                 ))}
               </select>
+              <div className="mt-1">
+                <a 
+                  href={`https://wa.me/${texts.contact?.whatsappNumber || "972500000000"}?text=${encodeURIComponent(texts.auth.whatsappAddInstitutionHelp || FALLBACK_TEXTS.auth.whatsappAddInstitutionHelp)}`} 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="text-xs text-primary hover:underline"
+                >
+                  {texts.auth.whatsappAddInstitutionLink || FALLBACK_TEXTS.auth.whatsappAddInstitutionLink}
+                </a>
+              </div>
             </div>
           )}
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">מספר טלפון</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">{texts.auth.phoneInput || FALLBACK_TEXTS.auth.phoneInput}</label>
             <input
               type="tel"
               required
@@ -209,7 +231,7 @@ export default function Register() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">{texts.auth.email} (כתובת מייל)</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">{texts.auth.email || FALLBACK_TEXTS.auth.emailInput}</label>
             <input
               type="email"
               required
