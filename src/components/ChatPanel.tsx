@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { collection, query, orderBy, limit, onSnapshot, addDoc, updateDoc, doc, setDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth, AppUser } from '../contexts/AuthContext';
-import { X, Send, MessageCircle, Reply, Check, CheckCheck, Users, Search, ArrowRight } from 'lucide-react';
+import { X, Send, MessageCircle, Reply, Check, CheckCheck, Users, Search, ArrowRight, SmilePlus } from 'lucide-react';
 import { cn, getFallbackAvatar } from '../lib/utils';
 
 interface ChatMessage {
@@ -17,6 +17,7 @@ interface ChatMessage {
     name: string;
   };
   readBy?: string[];
+  reactions?: Record<string, string[]>;
 }
 
 interface ChatPanelProps {
@@ -182,6 +183,55 @@ export default function ChatPanel({ onClose }: ChatPanelProps) {
       privateMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages, privateMessages, activeTab, isGlobalTab]);
+
+  const handleReaction = async (msgId: string, emoji: string, isGlobal: boolean) => {
+    if (!appUser) return;
+    try {
+      let path = '';
+      if (isGlobalTab) {
+        if (appUser.role === 'admin') {
+          path = activeTab === 'global_boys' ? 'chat_messages_boys' : 'chat_messages_girls';
+        } else {
+          path = appUser.gender === 'boy' ? 'chat_messages_boys' : 'chat_messages_girls';
+        }
+      } else if (selectedUser) {
+        const channelId = [appUser.uid, selectedUser.uid].sort().join('_');
+        path = `private_chats/${channelId}/messages`;
+      } else {
+        return;
+      }
+
+      const msgRef = doc(db, path, msgId);
+      
+      const msgList = isGlobal ? messages : privateMessages;
+      const msg = msgList.find(m => m.id === msgId);
+      if (!msg) return;
+
+      const currentReactions = msg.reactions || {};
+      const emojiUsers = currentReactions[emoji] || [];
+      
+      let newReactions = { ...currentReactions };
+      
+      if (emojiUsers.includes(appUser.uid)) {
+        // Remove reaction
+        newReactions[emoji] = emojiUsers.filter(uid => uid !== appUser.uid);
+        if (newReactions[emoji].length === 0) {
+          delete newReactions[emoji];
+        }
+      } else {
+        // Add reaction
+        newReactions[emoji] = [...emojiUsers, appUser.uid];
+      }
+
+      await updateDoc(msgRef, { reactions: newReactions });
+    } catch (error) {
+      console.error("Error updating reaction:", error);
+    }
+  };
+
+  const [activeReactionMsgId, setActiveReactionMsgId] = useState<string | null>(null);
+
+  const EMOJI_OPTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -416,15 +466,99 @@ export default function ChatPanel({ onClose }: ChatPanelProps) {
                     </div>
                   </div>
                   
-                  {/* Reply Button (shows on hover) */}
-                  <button 
-                    onClick={() => setReplyToMessage(msg)}
-                    className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-400 hover:text-slate-600 bg-white/50 border border-slate-100 hover:bg-white rounded-full transition-all shadow-sm"
-                    title="הגב"
-                  >
-                    <Reply size={14} />
-                  </button>
+                  {/* Action Buttons (Reply & React) */}
+                  <div className={cn("hidden sm:flex opacity-0 group-hover:opacity-100 items-center justify-center gap-1 transition-all", isMe ? "flex-row" : "flex-row-reverse")}>
+                    <button 
+                      onClick={() => setReplyToMessage(msg)}
+                      className="p-1.5 text-slate-400 hover:text-slate-600 bg-white/50 border border-slate-100 hover:bg-white rounded-full transition-all shadow-sm"
+                      title="הגב"
+                    >
+                      <Reply size={14} />
+                    </button>
+                    <button 
+                      onClick={() => setActiveReactionMsgId(activeReactionMsgId === msg.id ? null : msg.id)}
+                      className="p-1.5 text-slate-400 hover:text-slate-600 bg-white/50 border border-slate-100 hover:bg-white rounded-full transition-all shadow-sm"
+                      title="הוסף תגובה"
+                    >
+                      <SmilePlus size={14} />
+                    </button>
+
+                    {/* Emoji Picker Popup (Desktop) */}
+                    {activeReactionMsgId === msg.id && (
+                      <div className={cn("absolute bottom-full mb-2 bg-white rounded-full shadow-lg border border-slate-100 flex items-center p-1.5 gap-1 z-20 animate-in fade-in zoom-in duration-200", isMe ? "left-0" : "right-0")}>
+                        {EMOJI_OPTIONS.map(emoji => (
+                          <button
+                            key={emoji}
+                            onClick={() => {
+                              handleReaction(msg.id, emoji, isGlobal);
+                              setActiveReactionMsgId(null);
+                            }}
+                            className="w-8 h-8 flex items-center justify-center hover:bg-slate-100 rounded-full transition-colors text-lg"
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Actions for Mobile (Always visible slightly or visible via long press?) Actually we can just show on mobile a small button next to it */}
+                  <div className={cn("flex sm:hidden items-center justify-center gap-1 transition-all", isMe ? "flex-row" : "flex-row-reverse")}>
+                    <button 
+                      onClick={() => setActiveReactionMsgId(activeReactionMsgId === msg.id ? null : msg.id)}
+                      className="p-1.5 text-slate-400 bg-transparent rounded-full active:bg-slate-100 transition-all opacity-60"
+                    >
+                      <SmilePlus size={14} />
+                    </button>
+                    <button 
+                      onClick={() => setReplyToMessage(msg)}
+                      className="p-1.5 text-slate-400 bg-transparent rounded-full active:bg-slate-100 transition-all opacity-60"
+                    >
+                      <Reply size={14} />
+                    </button>
+                    
+                    {/* Emoji Picker Popup (Mobile) */}
+                    {activeReactionMsgId === msg.id && (
+                      <div className={cn("absolute bottom-full mb-2 bg-white rounded-full shadow-lg border border-slate-100 flex items-center p-1 gap-0.5 z-20 animate-in fade-in zoom-in-95 duration-200", isMe ? "left-0" : "right-0")}>
+                        {EMOJI_OPTIONS.map(emoji => (
+                          <button
+                            key={emoji}
+                            onClick={() => {
+                              handleReaction(msg.id, emoji, isGlobal);
+                              setActiveReactionMsgId(null);
+                            }}
+                            className="w-7 h-7 flex items-center justify-center hover:bg-slate-100 rounded-full transition-colors text-base"
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
+
+                {/* Display Reactions */}
+                {msg.reactions && Object.keys(msg.reactions).length > 0 && (
+                  <div className={cn("flex items-center gap-1 mt-1 z-10 w-full relative", isMe ? "justify-end pr-2" : "justify-start pl-2")}>
+                    <div className={cn(
+                      "flex items-center gap-1 bg-white/90 backdrop-blur-sm shadow-sm border border-slate-100 rounded-full px-1.5 py-0.5"
+                    )}>
+                      {Object.entries(msg.reactions).map(([emoji, usersArr]) => (
+                        <button
+                          key={emoji}
+                          onClick={() => handleReaction(msg.id, emoji, isGlobal)}
+                          className={cn(
+                            "flex items-center gap-1 text-[11px] font-medium px-1 rounded-full hover:bg-slate-100 transition-colors",
+                            usersArr.includes(appUser?.uid || '') ? "bg-blue-50 text-blue-600" : "text-slate-600"
+                          )}
+                        >
+                          <span className="text-[13px]">{emoji}</span>
+                          {usersArr.length > 1 && <span>{usersArr.length}</span>}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           );

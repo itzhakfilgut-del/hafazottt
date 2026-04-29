@@ -1,9 +1,17 @@
 import React from 'react';
+import { useLocation } from 'react-router-dom';
 import { useSettings } from '../contexts/SettingsContext';
 import { APP_TEXTS as FALLBACK_TEXTS } from '../constants';
 
 export default function WhatsAppBubble() {
+  const location = useLocation();
   const { settings } = useSettings();
+  
+  // Only show on home and register pages
+  if (location.pathname !== '/' && location.pathname !== '/register') {
+    return null;
+  }
+  
   const texts = settings?.texts || FALLBACK_TEXTS;
   
   const whatsappNumber = texts.contact?.whatsappNumber || "972500000000";
